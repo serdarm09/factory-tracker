@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { updateProduct } from "@/lib/actions";
 import { Pencil } from "lucide-react";
+import { DateRangeFilter } from "./date-range-filter";
+import { DateRange } from "react-day-picker";
 
 
 type Product = {
@@ -124,6 +126,7 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
 export function WarehouseTable({ products, role }: { products: Product[], role: string }) {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL");
+    const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [sortColumn, setSortColumn] = useState<keyof Product | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -138,7 +141,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
 
     const filtered = products.filter(p => {
         const term = search.toLowerCase();
-        const dateString = new Date(p.terminDate).toLocaleDateString('tr-TR');
+        const dateObj = new Date(p.terminDate);
+        const dateString = dateObj.toLocaleDateString('tr-TR');
         const matchesSearch =
             p.name.toLowerCase().includes(term) ||
             p.systemCode.toLowerCase().includes(term) ||
@@ -149,7 +153,21 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
             dateString.includes(term);
 
         const matchesStatus = statusFilter === "ALL" ? true : p.status === statusFilter;
-        return matchesSearch && matchesStatus;
+
+        let matchesDateRequest = true;
+        if (dateRange?.from) {
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+
+            const to = dateRange.to ? new Date(dateRange.to) : new Date(from);
+            to.setHours(23, 59, 59, 999);
+
+            // Filter on Termin Date by default as it's the deadline
+            const current = new Date(p.terminDate);
+            matchesDateRequest = current >= from && current <= to;
+        }
+
+        return matchesSearch && matchesStatus && matchesDateRequest;
     }).sort((a, b) => {
         if (!sortColumn) return 0;
 
@@ -192,10 +210,24 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     <option value="APPROVED">Onaylananlar</option>
                     <option value="COMPLETED">Tamamlananlar</option>
                 </select>
+                <div className="relative">
+                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                    {dateRange?.from && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
+                            onClick={() => setDateRange(undefined)}
+                        >
+                            <span className="sr-only">Temizle</span>
+                            <span className="text-xs">✕</span>
+                        </Button>
+                    )}
+                </div>
                 <div className="ml-auto">
                     <ExportButton
                         data={filtered.map(p => ({
-                            "Sistem Kodu": p.systemCode,
+                            "Ürün Kodu": p.systemCode,
                             "Ürün Adı": p.name,
                             "Model": p.model,
                             "Firma": p.company,
@@ -246,7 +278,10 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     </TableHeader>
                     <TableBody>
                         {filtered.map((p) => (
-                            <TableRow key={p.id}>
+                            <TableRow key={p.id} className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) && p.status !== 'COMPLETED' ? 'bg-red-50 hover:bg-red-100' :
+                                    new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) && p.status !== 'COMPLETED' ? 'bg-amber-50 hover:bg-amber-100' :
+                                        ''
+                                }`}>
                                 <TableCell className="font-mono">{p.systemCode}</TableCell>
                                 <TableCell>
                                     <div className="font-semibold">{p.name}</div>
@@ -262,8 +297,13 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     {p.description || '-'}
                                 </TableCell>
                                 <TableCell>{p.company || "-"}</TableCell>
-                                <TableCell className="text-xs text-slate-500 font-mono">
-                                    {new Date(p.terminDate).toLocaleDateString('tr-TR')}
+                                <TableCell className="text-xs font-mono">
+                                    <span className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'text-red-600 font-bold' :
+                                            new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-600 font-bold' :
+                                                'text-slate-500'
+                                        }`}>
+                                        {new Date(p.terminDate).toLocaleDateString('tr-TR')}
+                                    </span>
                                 </TableCell>
                                 <TableCell className="font-mono text-xs">{p.barcode || "-"}</TableCell>
                                 <TableCell>

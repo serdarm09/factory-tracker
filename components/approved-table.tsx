@@ -8,6 +8,8 @@ import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BarcodeDisplay from "@/components/barcode-display";
 import { revokeApproval } from "@/lib/actions";
+import { DateRangeFilter } from "./date-range-filter";
+import { DateRange } from "react-day-picker";
 
 type Product = {
     id: number;
@@ -30,8 +32,28 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         key: 'createdAt',
         direction: 'desc',
     });
+    const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
-    const sortedProducts = [...products].sort((a, b) => {
+    const filteredProducts = products.filter(p => {
+        if (dateRange?.from) {
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+
+            const to = dateRange.to ? new Date(dateRange.to) : new Date(from);
+            to.setHours(23, 59, 59, 999);
+
+            const current = new Date(p.terminDate); // Filtering Approval list by Termin Date as well, or maybe CreatedAt? Let's use Termin for consistency
+            // User might want to see approved items by Approval Date (createdAt usually tracks entry in this system).
+            // But usually "when is it due" is more important. Let's stick to Termin Date for now unless requested otherwise.
+            // Actually for "Approved" list, usually we care about "When was it approved?". But currently `createdAt` is creation date. 
+            // In Approvals page, these are "Active Approved". 
+            // Let's filter by TERMIN DATE.
+            return current >= from && current <= to;
+        }
+        return true;
+    });
+
+    const sortedProducts = [...filteredProducts].sort((a, b) => {
         if (!sortConfig.key) return 0;
 
         const aValue = a[sortConfig.key];
@@ -68,7 +90,21 @@ export function ApprovedTable({ products }: { products: Product[] }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+                <div className="relative">
+                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                    {dateRange?.from && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
+                            onClick={() => setDateRange(undefined)}
+                        >
+                            <span className="sr-only">Temizle</span>
+                            <span className="text-xs">✕</span>
+                        </Button>
+                    )}
+                </div>
                 <ExportButton
                     data={sortedProducts.map(p => ({
                         "Ürün Adı": p.name,

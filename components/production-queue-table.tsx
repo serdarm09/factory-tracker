@@ -8,6 +8,8 @@ import { Printer } from "lucide-react";
 import BarcodeDisplay from "@/components/barcode-display";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DateRangeFilter } from "./date-range-filter";
+import { DateRange } from "react-day-picker";
 
 type Product = {
     id: number;
@@ -30,17 +32,31 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
     const [search, setSearch] = useState("");
     const [scannedBarcode, setScannedBarcode] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
+    const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const itemsPerPage = 50;
 
     const filtered = products.filter(p => {
         const searchLower = search.toLowerCase();
-        return (
+        const matchesSearch =
             p.name.toLowerCase().includes(searchLower) ||
             p.model.toLowerCase().includes(searchLower) ||
             (p.company && p.company.toLowerCase().includes(searchLower)) ||
             p.barcode.toLowerCase().includes(searchLower) ||
-            p.systemCode.toLowerCase().includes(searchLower)
-        );
+            p.systemCode.toLowerCase().includes(searchLower);
+
+        let matchesDateRequest = true;
+        if (dateRange?.from) {
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+
+            const to = dateRange.to ? new Date(dateRange.to) : new Date(from);
+            to.setHours(23, 59, 59, 999);
+
+            const current = new Date(p.terminDate);
+            matchesDateRequest = current >= from && current <= to;
+        }
+
+        return matchesSearch && matchesDateRequest;
     });
 
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
@@ -68,7 +84,7 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     
                     <div class="info">
                         <div class="row">
-                            <span class="label">Sistem Kodu:</span>
+                            <span class="label">Ürün Kodu</span>
                             <span>${p.systemCode}</span>
                         </div>
                          <div class="row">
@@ -121,6 +137,20 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     onChange={(e) => { setScannedBarcode(e.target.value); setCurrentPage(1); }}
                     className="max-w-sm ml-2"
                 />
+                <div className="relative ml-2">
+                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                    {dateRange?.from && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
+                            onClick={() => setDateRange(undefined)}
+                        >
+                            <span className="sr-only">Temizle</span>
+                            <span className="text-xs">✕</span>
+                        </Button>
+                    )}
+                </div>
             </div>
 
             <div className="rounded-md border bg-white">
@@ -140,7 +170,11 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                         {paginatedProducts.map(p => (
                             <Dialog key={p.id}>
                                 <DialogTrigger asChild>
-                                    <TableRow className={`cursor-pointer hover:bg-slate-50 ${scannedBarcode && p.barcode === scannedBarcode ? "bg-yellow-100" : ""}`}>
+                                    <TableRow className={`cursor-pointer hover:bg-slate-50 ${scannedBarcode && p.barcode === scannedBarcode ? "bg-yellow-100" :
+                                            new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) && p.status !== 'COMPLETED' ? 'bg-red-50 hover:bg-red-100' :
+                                                new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) && p.status !== 'COMPLETED' ? 'bg-amber-50 hover:bg-amber-100' :
+                                                    ''
+                                        }`}>
                                         <TableCell>
                                             <div className="w-2 h-8 bg-blue-500 rounded-lg"></div>
                                         </TableCell>
@@ -150,7 +184,10 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                         </TableCell>
                                         <TableCell>{p.model}</TableCell>
                                         <TableCell>{p.company || '-'}</TableCell>
-                                        <TableCell className="text-red-700 font-bold font-mono">
+                                        <TableCell className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'text-red-700 font-bold' :
+                                                new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-700 font-bold' :
+                                                    'text-slate-700 font-mono'
+                                            }`}>
                                             {new Date(p.terminDate).toLocaleDateString('tr-TR')}
                                         </TableCell>
                                         <TableCell>
@@ -181,7 +218,7 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                                     <p className="text-lg">{p.company || '-'}</p>
                                                 </div>
                                                 <div>
-                                                    <h4 className="font-semibold text-sm text-slate-500 mb-1">Sistem Kodu</h4>
+                                                    <h4 className="font-semibold text-sm text-slate-500 mb-1">Ürün Kodu</h4>
                                                     <p className="font-mono bg-slate-100 p-2 rounded inline-block">{p.systemCode}</p>
                                                 </div>
                                                 <div>

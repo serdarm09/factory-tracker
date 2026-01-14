@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { UserCreateForm } from "./create-user-form";
-import { deleteUser } from "@/lib/actions";
+// deleteUser import removed as it is used in the client component now, OR kept if needed elsewhere, but mainly need to import the new button
+import { DeleteUserButton } from "@/components/delete-user-button";
 
 export default async function UsersPage() {
     const session = await auth();
@@ -40,9 +41,7 @@ export default async function UsersPage() {
                                         <TableCell>{u.role}</TableCell>
                                         <TableCell>
                                             {u.username !== 'admin' && (
-                                                <form action={deleteUser.bind(null, u.id)}>
-                                                    <Button variant="destructive" size="sm">Sil</Button>
-                                                </form>
+                                                <DeleteUserButton userId={u.id} />
                                             )}
                                         </TableCell>
                                     </TableRow>

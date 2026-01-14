@@ -7,10 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createUser } from "@/lib/actions";
 
-const initialState = {
-    error: '',
-    success: false
-};
+const initialState: { error?: string; success?: boolean } = {};
 
 function SubmitButton() {
     const { pending } = useFormStatus();

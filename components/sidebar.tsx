@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes } from "lucide-react";
+import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth"; // We need a server action for signOut to work in server components usually, or client. using client for signout button usually best.
 // Actually, calling signOut from server component is not direct. We need a client component for the signout button.
@@ -37,6 +37,7 @@ export async function Sidebar() {
         { name: "Üretim Girişi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WORKER"] },
         { name: "Kullanıcılar", href: "/dashboard/admin/users", icon: Users, roles: ["ADMIN"] },
         { name: "Kayıtlar (Log)", href: "/dashboard/admin/logs", icon: ClipboardList, roles: ["ADMIN"] },
+        { name: "Özellik Yönetimi", href: "/dashboard/admin/features", icon: Settings2, roles: ["ADMIN", "PLANNER"] },
     ];
 
     return (

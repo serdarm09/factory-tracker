@@ -9,7 +9,7 @@ import bcrypt from "bcryptjs";
 // Helper to create audit logs
 async function createAuditLog(action: string, entity: string, entityId: string, details: string, userId: number) {
     try {
-        await prisma.auditLog.create({
+        await (prisma as any).auditLog.create({
             data: {
                 action,
                 entity,
@@ -34,10 +34,20 @@ export async function createProduct(formData: FormData) {
     const company = formData.get("company") as string;
     const quantity = parseInt(formData.get("quantity") as string);
     const terminDate = new Date(formData.get("terminDate") as string);
+    const orderDateStr = formData.get("orderDate") as string;
+    const orderDate = orderDateStr ? new Date(orderDateStr) : new Date();
     const code = formData.get("systemCode") as string;
     const material = formData.get("material") as string;
     const description = formData.get("description") as string;
     const shelf = formData.get("shelf") as string;
+
+    // New Configuration Fields
+    const footType = formData.get("footType") as string;
+    const footMaterial = formData.get("footMaterial") as string;
+    const armType = formData.get("armType") as string;
+    const backType = formData.get("backType") as string;
+    const fabricType = formData.get("fabricType") as string;
+
     // Shelf is optional now for Planner
 
     if (!name || !model || !quantity || !terminDate || !code) {
@@ -58,14 +68,41 @@ export async function createProduct(formData: FormData) {
                 company,
                 quantity,
                 terminDate,
+                orderDate,
                 systemCode: code,
                 material,
                 description,
                 shelf: shelf || "",
                 status: "PENDING",
+                footType: footType || null,
+                footMaterial: footMaterial || null,
+                armType: armType || null,
+                backType: backType || null,
+                fabricType: fabricType || null,
                 createdById: parseInt((session.user as any).id),
             },
         });
+
+        // Save to Catalog if requested
+        const saveToCatalog = formData.get("saveToCatalog") === "true";
+        if (saveToCatalog) {
+            try {
+                // Check if exists first to avoid unique constraint error
+                const existing = await (prisma as any).productCatalog.findUnique({ where: { code } });
+                if (!existing) {
+                    await (prisma as any).productCatalog.create({
+                        data: {
+                            code,
+                            name
+                        }
+                    });
+                    await createAuditLog("CATALOG_ADD", "ProductCatalog", code, `Added to catalog via planning: ${name}`, userId);
+                }
+            } catch (e) {
+                console.error("Failed to save to catalog:", e);
+                // Non-blocking error, just log it
+            }
+        }
 
         await createAuditLog("CREATE", "Product", code, `Created product: ${name}, Qty: ${quantity}`, userId);
 
@@ -118,6 +155,11 @@ export async function updateProduct(id: number, formData: FormData) {
         return { error: "Yetkisiz işlem" };
     }
 
+    // Fix implicit type errors
+    if (!prisma) {
+        return { error: "Database connection failed" };
+    }
+
     const name = formData.get("name") as string;
     const model = formData.get("model") as string;
     const company = formData.get("company") as string;
@@ -125,6 +167,12 @@ export async function updateProduct(id: number, formData: FormData) {
     const material = formData.get("material") as string;
     const description = formData.get("description") as string;
     const shelf = formData.get("shelf") as string;
+
+    const footType = formData.get("footType") as string;
+    const footMaterial = formData.get("footMaterial") as string;
+    const armType = formData.get("armType") as string;
+    const backType = formData.get("backType") as string;
+    const fabricType = formData.get("fabricType") as string;
 
     const updates: any = {};
     let logDetails = "";
@@ -172,6 +220,11 @@ export async function updateProduct(id: number, formData: FormData) {
                 material,
                 description,
                 shelf,
+                footType: footType || null,
+                footMaterial: footMaterial || null,
+                armType: armType || null,
+                backType: backType || null,
+                fabricType: fabricType || null,
                 ...updates
             }
         });
@@ -357,7 +410,7 @@ export async function createUser(prevState: any, formData: FormData) {
 
 export async function deleteUser(id: number) {
     const session = await auth();
-    if ((session?.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
 
     try {
         const userToDelete = await prisma.user.findUnique({ where: { id } });
@@ -375,3 +428,18 @@ export async function deleteUser(id: number) {
 }
 
 
+
+export async function searchCatalog(query: string) {
+    if (!query || query.length < 2) return [];
+
+    const results = await (prisma as any).productCatalog.findMany({
+        where: {
+            OR: [
+                { name: { contains: query } },
+                { code: { contains: query } }
+            ]
+        },
+        take: 20
+    });
+    return results;
+}

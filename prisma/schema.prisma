@@ -27,9 +27,19 @@ model Product {
   shelf       String   // Shelf location (required)
   produced    Int      @default(0) // Total produced
 
+
+  orderDate   DateTime @default(now()) // Sipariş Tarihi
   terminDate  DateTime
   material    String?  // Kumaş, Deri vb.
   description String?  // Müşteri isteği / Açıklama (Max 500)
+  
+  // New Configuration Fields
+  footType     String?
+  footMaterial String?
+  armType      String?
+  backType     String?
+  fabricType   String?
+  
   status      String   @default("PENDING") // PENDING, APPROVED, COMPLETED
   createdById Int?   // ID of user who created the plan
   creator     User? @relation("CreatedProducts", fields: [createdById], references: [id])
@@ -58,5 +68,20 @@ model AuditLog {
   details   String?  // JSON or text description of changes
   userId    Int
   user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model ProductCatalog {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProductFeature {
+  id        Int      @id @default(autoincrement())
+  category  String   // FOOT_TYPE, FOOT_MATERIAL, ARM_TYPE, BACK_TYPE, FABRIC_TYPE
+  name      String
   createdAt DateTime @default(now())
 }
