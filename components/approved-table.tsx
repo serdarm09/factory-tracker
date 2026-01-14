@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,8 @@ type Product = {
     barcode: string | null;
     createdAt: Date;
     terminDate: Date;
+    material?: string | null;
+    description?: string | null;
 };
 
 export function ApprovedTable({ products }: { products: Product[] }) {
@@ -33,8 +36,8 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         const aValue = a[sortConfig.key];
         const bValue = b[sortConfig.key];
 
-        if (aValue === null) return 1;
-        if (bValue === null) return -1;
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
 
         if (aValue < bValue) {
             return sortConfig.direction === 'asc' ? -1 : 1;
@@ -69,6 +72,8 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                     <TableHead className="w-[50px]"></TableHead>
                     <SortHead label="Ürün" sortKey="name" />
                     <SortHead label="Model" sortKey="model" />
+                    <TableHead>Malzeme</TableHead>
+                    <TableHead>Not</TableHead>
                     <SortHead label="Firma" sortKey="company" />
                     <SortHead label="Giriş / Onay" sortKey="createdAt" />
                     <SortHead label="Termin" sortKey="terminDate" />
@@ -88,6 +93,10 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                         </TableCell>
                         <TableCell className="font-medium py-2">{p.name}</TableCell>
                         <TableCell className="py-2">{p.model}</TableCell>
+                        <TableCell className="py-2 text-sm">{p.material || '-'}</TableCell>
+                        <TableCell className="py-2 max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                            {p.description || '-'}
+                        </TableCell>
                         <TableCell className="py-2">{p.company || '-'}</TableCell>
                         <TableCell className="py-2 text-slate-500">{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
                         <TableCell className="py-2 text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
@@ -107,7 +116,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                 ))}
                 {sortedProducts.length === 0 && (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
+                        <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
                     </TableRow>
                 )}
             </TableBody>
@@ -124,7 +133,9 @@ function CancelButton({ id, status }: { id: number, status: string }) {
         startTransition(async () => {
             const res = await revokeApproval(id);
             if (res?.error) {
-                alert(res.error);
+                toast.error(res.error);
+            } else {
+                toast.success("Onay iptal edildi (Barkod silindi)");
             }
         });
     };

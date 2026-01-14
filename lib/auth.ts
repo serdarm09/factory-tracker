@@ -22,10 +22,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                     where: { username }
                 })
 
-                if (!user) return null
+                if (!user) {
+                    console.log("Login failed: User not found", username);
+                    return null
+                }
 
                 const passwordsMatch = await bcrypt.compare(password, user.password)
-                if (!passwordsMatch) return null
+                if (!passwordsMatch) {
+                    console.log("Login failed: Password mismatch for user", username);
+                    return null
+                }
 
                 return {
                     id: user.id.toString(),

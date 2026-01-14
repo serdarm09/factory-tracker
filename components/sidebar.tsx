@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes } from "lucide-react";
@@ -40,8 +41,11 @@ export async function Sidebar() {
 
     return (
         <div className="flex bg-slate-900 text-white w-64 min-h-screen flex-col">
+
             <div className="p-6">
-                <h1 className="text-xl font-bold tracking-wider">MARİSİT CRM</h1>
+                <div className="mb-2">
+                    <Image src="/image.png" alt="Marisit Logo" width={180} height={60} className="object-contain" priority />
+                </div>
                 <p className="text-xs text-slate-400 mt-1">Rol: {role}</p>
             </div>
 

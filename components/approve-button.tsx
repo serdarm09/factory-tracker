@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 
 interface ApproveButtonProps {
-    action: () => Promise<void>;
+    action: () => Promise<any>;
     label: string;
 }
 
@@ -14,9 +15,13 @@ export function ApproveButton({ action, label }: ApproveButtonProps) {
 
     const handleClick = async () => {
         if (window.confirm("Bu işlemi onayladığınıza emin misiniz?")) {
-            setLoading(true);
             try {
-                await action();
+                const res = await action();
+                if (res?.error) {
+                    toast.error(res.error);
+                } else {
+                    toast.success("İşlem başarılı");
+                }
             } finally {
                 setLoading(false);
             }

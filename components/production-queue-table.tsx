@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
 import BarcodeDisplay from "@/components/barcode-display";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Product = {
     id: number;
@@ -21,6 +23,7 @@ type Product = {
     terminDate: string;
     material?: string | null;
     description?: string | null;
+    shelf?: string | null;
 };
 
 export function ProductionQueueTable({ products }: { products: Product[] }) {
@@ -205,8 +208,8 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                                 <div>
                                                     <h4 className="font-semibold text-sm text-slate-500 mb-1">Durum</h4>
                                                     <span className={`px-2 py-1 rounded text-xs font-bold ${p.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
-                                                            p.status === 'APPROVED' ? 'bg-blue-100 text-blue-600' :
-                                                                'bg-green-100 text-green-600'
+                                                        p.status === 'APPROVED' ? 'bg-blue-100 text-blue-600' :
+                                                            'bg-green-100 text-green-600'
                                                         }`}>
                                                         {p.status === 'PENDING' ? 'BEKLEMEDE' :
                                                             p.status === 'APPROVED' ? 'ONAYLANDI' : 'TAMAMLANDI'}

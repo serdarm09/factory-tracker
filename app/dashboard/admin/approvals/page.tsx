@@ -11,7 +11,8 @@ import { ApprovedTable } from "@/components/approved-table";
 export default async function ApprovalsPage() {
     const pendingProducts = await prisma.product.findMany({
         where: { status: 'PENDING' },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        include: { creator: true }
     });
 
     const approvedProducts = await prisma.product.findMany({
@@ -33,6 +34,9 @@ export default async function ApprovalsPage() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Ürün</TableHead>
+                                <TableHead>Planlayan</TableHead>
+                                <TableHead>Malzeme</TableHead>
+                                <TableHead>Not</TableHead>
                                 <TableHead>Firma</TableHead>
                                 <TableHead>Giriş Tarihi</TableHead>
                                 <TableHead>Termin</TableHead>
@@ -47,6 +51,13 @@ export default async function ApprovalsPage() {
                                         <div className="font-bold">{p.name}</div>
                                         <div className="text-xs text-slate-500">{p.model}</div>
                                         <div className="text-xs text-slate-400">{p.systemCode}</div>
+                                    </TableCell>
+                                    <TableCell className="text-sm font-medium text-blue-600">
+                                        {(p.creator as any)?.username || '-'}
+                                    </TableCell>
+                                    <TableCell className="text-sm">{p.material || '-'}</TableCell>
+                                    <TableCell className="max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                                        {p.description || '-'}
                                     </TableCell>
                                     <TableCell>{p.company || '-'}</TableCell>
                                     <TableCell>{p.createdAt.toLocaleDateString('tr-TR')}</TableCell>
@@ -63,7 +74,7 @@ export default async function ApprovalsPage() {
                             ))}
                             {pendingProducts.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={3} className="text-center py-4 text-slate-500">Onay bekleyen ürün yok.</TableCell>
+                                    <TableCell colSpan={8} className="text-center py-4 text-slate-500">Onay bekleyen ürün yok.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>

@@ -1,5 +1,7 @@
 import prisma from "@/lib/prisma";
 import { createProduct, cancelProduct } from "@/lib/actions";
+import { PlanningForm } from "@/components/planning-form";
+import { CancelProductButton } from "@/components/cancel-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,70 +50,81 @@ export default async function PlanningPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4 lg:col-span-3">
+            {(session?.user as any).role !== 'VIEWER' && (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+                    <Card className="col-span-4 lg:col-span-3">
+                        <CardHeader>
+                            <CardTitle>Yeni Plan Oluştur</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <PlanningForm />
+                        </CardContent>
+                    </Card>
+
+                    <Card className="col-span-4">
+                        <CardHeader>
+                            <CardTitle>Son Planlar</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Kod</TableHead>
+                                        <TableHead>Ürün</TableHead>
+                                        <TableHead>Malzeme</TableHead>
+                                        <TableHead>Not</TableHead>
+                                        <TableHead>Adet</TableHead>
+                                        <TableHead>Tarih</TableHead>
+                                        <TableHead>Durum</TableHead>
+                                        <TableHead>İşlem</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {products.map((p) => (
+                                        <TableRow key={p.id}>
+                                            <TableCell className="font-medium">{p.systemCode}</TableCell>
+                                            <TableCell>
+                                                <div className="font-semibold">{p.name}</div>
+                                                <div className="text-xs text-slate-500">{p.model}</div>
+                                            </TableCell>
+                                            <TableCell className="text-sm">{p.material || '-'}</TableCell>
+                                            <TableCell className="max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                                                {p.description || '-'}
+                                            </TableCell>
+                                            <TableCell>{p.quantity}</TableCell>
+                                            <TableCell>{p.terminDate.toLocaleDateString('tr-TR')}</TableCell>
+                                            <TableCell>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${p.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
+                                                    p.status === 'APPROVED' ? 'bg-blue-100 text-blue-600' :
+                                                        'bg-green-100 text-green-600'
+                                                    }`}>
+                                                    {p.status === 'PENDING' ? 'BEKLEMEDE' :
+                                                        p.status === 'APPROVED' ? 'ONAYLANDI' : 'TAMAMLANDI'}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell>
+                                                {(p.status === 'PENDING' || (session?.user as any).role === 'ADMIN') && (session?.user as any).role !== 'VIEWER' && (
+                                                    <CancelProductButton id={p.id} />
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {products.length === 0 && (
+                                        <TableRow>
+                                            <TableCell colSpan={8} className="text-center py-8 text-slate-500">Plan bulunamadı.</TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {(session?.user as any).role === 'VIEWER' && (
+                <Card>
                     <CardHeader>
-                        <CardTitle>Yeni Plan Oluştur</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <form action={createProduct} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="name">Ürün Adı</Label>
-                                    <Input id="name" name="name" required placeholder="Sandalye X1" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="model">Model</Label>
-                                    <Input id="model" name="model" required placeholder="V2024" />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="company">Firma / Müşteri</Label>
-                                <Input id="company" name="company" placeholder="ABC Mobilya" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="quantity">Adet</Label>
-                                    <Input id="quantity" name="quantity" type="number" required min="1" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="systemCode">Sistem Kodu</Label>
-                                    <Input id="systemCode" name="systemCode" required placeholder="SYS-001" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="shelf">Raf Kodu</Label>
-                                    <Input id="shelf" name="shelf" required placeholder="A1, B3..." />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="terminDate">Termin Tarihi</Label>
-                                <Input id="terminDate" name="terminDate" type="date" required />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="material">Malzeme / Kumaş / Deri</Label>
-                                <Input id="material" name="material" placeholder="Örn: Nubuk Deri, Gri Kumaş..." />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="description">Açıklama / Müşteri Notu</Label>
-                                <textarea
-                                    id="description"
-                                    name="description"
-                                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    placeholder="Ekstra istekler, dikiş detayları vb. (Max 500 karakter)"
-                                    maxLength={500}
-                                />
-                            </div>
-
-                            <Button type="submit" className="w-full">Plana Ekle</Button>
-                        </form>
-                    </CardContent>
-                </Card>
-
-                <Card className="col-span-4">
-                    <CardHeader>
-                        <CardTitle>Son Planlar</CardTitle>
+                        <CardTitle>Planlar</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <Table>
@@ -119,10 +132,11 @@ export default async function PlanningPage() {
                                 <TableRow>
                                     <TableHead>Kod</TableHead>
                                     <TableHead>Ürün</TableHead>
+                                    <TableHead>Malzeme</TableHead>
+                                    <TableHead>Not</TableHead>
                                     <TableHead>Adet</TableHead>
                                     <TableHead>Tarih</TableHead>
                                     <TableHead>Durum</TableHead>
-                                    <TableHead>İşlem</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -132,6 +146,10 @@ export default async function PlanningPage() {
                                         <TableCell>
                                             <div className="font-semibold">{p.name}</div>
                                             <div className="text-xs text-slate-500">{p.model}</div>
+                                        </TableCell>
+                                        <TableCell className="text-sm">{p.material || '-'}</TableCell>
+                                        <TableCell className="max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                                            {p.description || '-'}
                                         </TableCell>
                                         <TableCell>{p.quantity}</TableCell>
                                         <TableCell>{p.terminDate.toLocaleDateString('tr-TR')}</TableCell>
@@ -144,25 +162,18 @@ export default async function PlanningPage() {
                                                     p.status === 'APPROVED' ? 'ONAYLANDI' : 'TAMAMLANDI'}
                                             </span>
                                         </TableCell>
-                                        <TableCell>
-                                            {(p.status === 'PENDING' || (session?.user as any).role === 'ADMIN') && (
-                                                <form action={cancelProduct.bind(null, p.id)}>
-                                                    <Button variant="destructive" size="sm">İptal</Button>
-                                                </form>
-                                            )}
-                                        </TableCell>
                                     </TableRow>
                                 ))}
                                 {products.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">Plan bulunamadı.</TableCell>
+                                        <TableCell colSpan={7} className="text-center py-8 text-slate-500">Plan bulunamadı.</TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>
                         </Table>
                     </CardContent>
                 </Card>
-            </div>
+            )}
         </div>
     );
 }
