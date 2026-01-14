@@ -71,15 +71,15 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label>Ürün Adı</Label>
-                            <Input name="name" defaultValue={product.name} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
+                            <Input name="name" defaultValue={product.name} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={100} />
                         </div>
                         <div className="space-y-2">
                             <Label>Model</Label>
-                            <Input name="model" defaultValue={product.model} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
+                            <Input name="model" defaultValue={product.model} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={50} />
                         </div>
                         <div className="space-y-2">
                             <Label>Firma</Label>
-                            <Input name="company" defaultValue={product.company || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
+                            <Input name="company" defaultValue={product.company || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={100} />
                         </div>
                         <div className="space-y-2">
                             <Label>Termin Tarihi</Label>
@@ -87,18 +87,18 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                         </div>
                         <div className="space-y-2">
                             <Label>Raf Kodu</Label>
-                            <Input name="shelf" defaultValue={product.shelf || ''} required />
+                            <Input name="shelf" defaultValue={product.shelf || ''} required maxLength={20} />
                         </div>
                         <div className="space-y-2">
                             <Label>Malzeme</Label>
-                            <Input name="material" defaultValue={product.material || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
+                            <Input name="material" defaultValue={product.material || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={100} />
                         </div>
 
                         {/* Admin or Planner can edit Planned Quantity */}
                         {(isAdmin || isPlanner) && (
                             <div className="space-y-2">
                                 <Label>Planlanan Adet</Label>
-                                <Input name="quantity" type="number" defaultValue={product.quantity} required />
+                                <Input name="quantity" type="number" defaultValue={product.quantity} required min="1" max="100000" />
                             </div>
                         )}
 
@@ -106,13 +106,13 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                         {(isAdmin || isWorker) && (
                             <div className="space-y-2">
                                 <Label>Üretim / Stok {isWorker ? '(Düzenleme)' : ''}</Label>
-                                <Input name="produced" type="number" defaultValue={product.produced} required />
+                                <Input name="produced" type="number" defaultValue={product.produced} required min="0" max={product.quantity} />
                             </div>
                         )}
                     </div>
                     <div className="space-y-2">
                         <Label>Not / Açıklama</Label>
-                        <Textarea name="description" defaultValue={product.description || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
+                        <Textarea name="description" defaultValue={product.description || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={500} />
                     </div>
                     <Button type="submit" className="w-full">Kaydet</Button>
                 </form>
