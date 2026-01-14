@@ -1,0 +1,16 @@
+version: '3'
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: factory-tracker
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./dev.db
+      - NEXTAUTH_SECRET=changeme123
+      - NEXTAUTH_URL=http://localhost:3000
+    volumes:
+      - ./prisma/dev.db:/app/prisma/dev.db

@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  role      String   // ADMIN, PLANNER, WORKER, VIEWER
+  createdProducts Product[] @relation("CreatedProducts")
+  createdAt DateTime @default(now())
+  logs      ProductionLog[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  model       String
+  company     String?  // Company / Customer name
+  quantity    Int      // Total planned
+  shelf       String   // Shelf location (required)
+  produced    Int      @default(0) // Total produced
+
+  terminDate  DateTime
+  material    String?  // Kumaş, Deri vb.
+  description String?  // Müşteri isteği / Açıklama (Max 500)
+  status      String   @default("PENDING") // PENDING, APPROVED, COMPLETED
+  createdById Int?   // ID of user who created the plan
+  creator     User? @relation("CreatedProducts", fields: [createdById], references: [id])
+  systemCode  String   @unique
+  barcode     String?  @unique
+  createdAt   DateTime @default(now())
+  logs        ProductionLog[]
+}
+
+model ProductionLog {
+  id        Int      @id @default(autoincrement())
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  quantity  Int
+  shelf     String?
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  createdAt DateTime @default(now())
+}
