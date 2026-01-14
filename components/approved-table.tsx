@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,61 +67,80 @@ export function ApprovedTable({ products }: { products: Product[] }) {
     );
 
     return (
-        <Table>
-            <TableHeader>
-                <TableRow>
-                    <TableHead className="w-[50px]"></TableHead>
-                    <SortHead label="Ürün" sortKey="name" />
-                    <SortHead label="Model" sortKey="model" />
-                    <TableHead>Malzeme</TableHead>
-                    <TableHead>Not</TableHead>
-                    <SortHead label="Firma" sortKey="company" />
-                    <SortHead label="Giriş / Onay" sortKey="createdAt" />
-                    <SortHead label="Termin" sortKey="terminDate" />
-                    <SortHead label="Barkod" sortKey="barcode" />
-                    <TableHead className="text-right">İşlem</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {sortedProducts.map(p => (
-                    <TableRow key={p.id} className="h-8">
-                        <TableCell className="py-2">
-                            <div className="flex justify-center">
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${p.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                </div>
-                            </div>
-                        </TableCell>
-                        <TableCell className="font-medium py-2">{p.name}</TableCell>
-                        <TableCell className="py-2">{p.model}</TableCell>
-                        <TableCell className="py-2 text-sm">{p.material || '-'}</TableCell>
-                        <TableCell className="py-2 max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
-                            {p.description || '-'}
-                        </TableCell>
-                        <TableCell className="py-2">{p.company || '-'}</TableCell>
-                        <TableCell className="py-2 text-slate-500">{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
-                        <TableCell className="py-2 text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
-                        <TableCell className="py-2">
-                            {p.barcode ? (
-                                <div className="max-w-[150px] overflow-hidden">
-                                    <BarcodeDisplay value={p.barcode} />
-                                </div>
-                            ) : (
-                                <span className="font-mono text-slate-400">-</span>
-                            )}
-                        </TableCell>
-                        <TableCell className="text-right py-2">
-                            <CancelButton id={p.id} status={p.status} />
-                        </TableCell>
-                    </TableRow>
-                ))}
-                {sortedProducts.length === 0 && (
+        <div className="space-y-4">
+            <div className="flex justify-end">
+                <ExportButton
+                    data={sortedProducts.map(p => ({
+                        "Ürün Adı": p.name,
+                        "Model": p.model,
+                        "Firma": p.company,
+                        "Malzeme": p.material,
+                        "Açıklama": p.description,
+                        "Giriş Tarihi": new Date(p.createdAt).toLocaleDateString('tr-TR'),
+                        "Termin Tarihi": new Date(p.terminDate).toLocaleDateString('tr-TR'),
+                        "Kullanılan Barkod": p.barcode,
+                        "Durum": p.status
+                    }))}
+                    filename="onaylanan-urunler"
+                    label="Listeyi İndir"
+                />
+            </div>
+            <Table>
+                <TableHeader>
                     <TableRow>
-                        <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
+                        <TableHead className="w-[50px]"></TableHead>
+                        <SortHead label="Ürün" sortKey="name" />
+                        <SortHead label="Model" sortKey="model" />
+                        <TableHead>Malzeme</TableHead>
+                        <TableHead>Not</TableHead>
+                        <SortHead label="Firma" sortKey="company" />
+                        <SortHead label="Giriş / Onay" sortKey="createdAt" />
+                        <SortHead label="Termin" sortKey="terminDate" />
+                        <SortHead label="Barkod" sortKey="barcode" />
+                        <TableHead className="text-right">İşlem</TableHead>
                     </TableRow>
-                )}
-            </TableBody>
-        </Table>
+                </TableHeader>
+                <TableBody>
+                    {sortedProducts.map(p => (
+                        <TableRow key={p.id} className="h-8">
+                            <TableCell className="py-2">
+                                <div className="flex justify-center">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${p.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    </div>
+                                </div>
+                            </TableCell>
+                            <TableCell className="font-medium py-2">{p.name}</TableCell>
+                            <TableCell className="py-2">{p.model}</TableCell>
+                            <TableCell className="py-2 text-sm">{p.material || '-'}</TableCell>
+                            <TableCell className="py-2 max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                                {p.description || '-'}
+                            </TableCell>
+                            <TableCell className="py-2">{p.company || '-'}</TableCell>
+                            <TableCell className="py-2 text-slate-500">{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
+                            <TableCell className="py-2 text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
+                            <TableCell className="py-2">
+                                {p.barcode ? (
+                                    <div className="max-w-[150px] overflow-hidden">
+                                        <BarcodeDisplay value={p.barcode} />
+                                    </div>
+                                ) : (
+                                    <span className="font-mono text-slate-400">-</span>
+                                )}
+                            </TableCell>
+                            <TableCell className="text-right py-2">
+                                <CancelButton id={p.id} status={p.status} />
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                    {sortedProducts.length === 0 && (
+                        <TableRow>
+                            <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
+                        </TableRow>
+                    )}
+                </TableBody>
+            </Table>
+        </div>
     );
 }
 

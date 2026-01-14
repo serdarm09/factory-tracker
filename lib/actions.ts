@@ -6,6 +6,23 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 
+// Helper to create audit logs
+async function createAuditLog(action: string, entity: string, entityId: string, details: string, userId: number) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                action,
+                entity,
+                entityId,
+                details,
+                userId
+            }
+        });
+    } catch (e) {
+        console.error("Audit log creation failed:", e);
+    }
+}
+
 export async function createProduct(formData: FormData) {
     const session = await auth();
     if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
@@ -50,6 +67,8 @@ export async function createProduct(formData: FormData) {
             },
         });
 
+        await createAuditLog("CREATE", "Product", code, `Created product: ${name}, Qty: ${quantity}`, userId);
+
         revalidatePath("/dashboard/planning");
         revalidatePath("/dashboard/admin/approvals");
         return { success: true };
@@ -62,6 +81,7 @@ export async function createProduct(formData: FormData) {
 export async function cancelProduct(id: number) {
     const session = await auth();
     const role = (session?.user as any).role;
+    const userId = parseInt((session?.user as any).id);
 
     if (!session) return { error: "Yetkisiz işlem" };
 
@@ -79,17 +99,21 @@ export async function cancelProduct(id: number) {
             prisma.product.delete({ where: { id } })
         ]);
 
+        await createAuditLog("CANCEL", "Product", product.systemCode, `Cancelled product ID: ${id}`, userId);
+
         revalidatePath("/dashboard/planning");
         return { success: true };
     } catch (e) {
         return { error: "İptal edilirken bir hata oluştu." };
     }
 }
-// ... (skip down to updateProduct) ...
+
 export async function updateProduct(id: number, formData: FormData) {
     const session = await auth();
     // Allow ADMIN, PLANNER, and WORKER
     const role = (session?.user as any).role;
+    const userId = parseInt((session?.user as any).id);
+
     if (!session || !["ADMIN", "PLANNER", "WORKER"].includes(role)) {
         return { error: "Yetkisiz işlem" };
     }
@@ -103,11 +127,13 @@ export async function updateProduct(id: number, formData: FormData) {
     const shelf = formData.get("shelf") as string;
 
     const updates: any = {};
+    let logDetails = "";
 
     // Quantity update (Admin/Planner)
     const quantityStr = formData.get("quantity");
     if (quantityStr) {
         updates.quantity = parseInt(quantityStr as string);
+        logDetails += `Qty updated to ${updates.quantity}. `;
     }
 
     // Produced update (Admin/Worker)
@@ -115,6 +141,7 @@ export async function updateProduct(id: number, formData: FormData) {
     if (producedStr) {
         const newProduced = parseInt(producedStr as string);
         updates.produced = newProduced;
+        logDetails += `Produced updated to ${newProduced}. `;
 
         // Recalculate status based on new produced amount
         const product = await prisma.product.findUnique({ where: { id } });
@@ -135,7 +162,7 @@ export async function updateProduct(id: number, formData: FormData) {
     }
 
     try {
-        await prisma.product.update({
+        const product = await prisma.product.update({
             where: { id },
             data: {
                 name,
@@ -148,6 +175,9 @@ export async function updateProduct(id: number, formData: FormData) {
                 ...updates
             }
         });
+
+        await createAuditLog("UPDATE", "Product", product.systemCode, logDetails || "Updated details", userId);
+
         revalidatePath("/dashboard/warehouse");
         revalidatePath("/dashboard/planning");
         return { success: true };
@@ -158,19 +188,22 @@ export async function updateProduct(id: number, formData: FormData) {
 
 export async function approveProduct(id: number) {
     const session = await auth();
-    if ((session?.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    const userId = parseInt((session.user as any).id);
 
     try {
         const timestamp = Date.now().toString().slice(-6);
         const barcode = `PROD-${id}-${timestamp}`;
 
-        await prisma.product.update({
+        const product = await prisma.product.update({
             where: { id },
             data: {
                 status: "APPROVED",
                 barcode: barcode
             }
         });
+
+        await createAuditLog("APPROVE", "Product", product.systemCode, `Product approved. Barcode: ${barcode}`, userId);
 
         revalidatePath("/dashboard/admin/approvals");
         return { success: true };
@@ -221,6 +254,8 @@ export async function logProduction(barcode: string, quantity: number, shelf: st
             })
         ]);
 
+        await createAuditLog("PRODUCE", "Product", product.systemCode, `Production logged: ${quantity}. New Total: ${newProduced}`, userId);
+
         revalidatePath("/dashboard/production");
         revalidatePath("/dashboard"); // Marketing
         return { success: true, product };
@@ -238,6 +273,8 @@ export async function getProductByBarcode(barcode: string) {
 export async function revokeApproval(id: number) {
     const product = await prisma.product.findUnique({ where: { id } });
     if (!product) return { error: "Ürün bulunamadı" };
+    const session = await auth();
+    const userId = parseInt((session?.user as any).id);
 
     if (product.status === 'COMPLETED') {
         return { error: "Tamamlanmış ürünün onayı iptal edilemez." };
@@ -251,6 +288,9 @@ export async function revokeApproval(id: number) {
                 barcode: null,
             }
         });
+
+        await createAuditLog("REVOKE", "Product", product.systemCode, "Approval revoked", userId);
+
         revalidatePath('/dashboard/admin/approvals');
         revalidatePath('/dashboard/warehouse');
         revalidatePath('/dashboard/production');
@@ -262,13 +302,18 @@ export async function revokeApproval(id: number) {
 
 export async function rejectProduct(id: number) {
     const session = await auth();
-    if ((session?.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    const userId = parseInt((session.user as any).id);
 
     try {
-        await prisma.product.update({
+        // Need fetching product to log systemCode? Optimistically update.
+        const product = await prisma.product.update({
             where: { id },
             data: { status: 'REJECTED' }
         });
+
+        await createAuditLog("REJECT", "Product", product.systemCode, "Product rejected", userId);
+
         revalidatePath("/dashboard/admin/approvals");
         revalidatePath("/dashboard/planning");
         return { success: true };
@@ -279,7 +324,7 @@ export async function rejectProduct(id: number) {
 
 export async function createUser(prevState: any, formData: FormData) {
     const session = await auth();
-    if ((session?.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
 
     const username = formData.get("username") as string;
     const password = formData.get("password") as string;
@@ -293,13 +338,16 @@ export async function createUser(prevState: any, formData: FormData) {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
-        await prisma.user.create({
+        const newUser = await prisma.user.create({
             data: {
                 username,
                 password: hashedPassword,
                 role
             }
         });
+
+        await createAuditLog("CREATE", "User", username, `User created with role: ${role}`, parseInt((session.user as any).id));
+
         revalidatePath("/dashboard/admin/users");
         return { success: true };
     } catch (e) {
@@ -312,7 +360,13 @@ export async function deleteUser(id: number) {
     if ((session?.user as any).role !== "ADMIN") return { error: "Yetkisiz işlem" };
 
     try {
+        const userToDelete = await prisma.user.findUnique({ where: { id } });
         await prisma.user.delete({ where: { id } });
+
+        if (userToDelete) {
+            await createAuditLog("DELETE", "User", userToDelete.username, `User deleted ID: ${id}`, parseInt((session.user as any).id));
+        }
+
         revalidatePath("/dashboard/admin/users");
         return { success: true };
     } catch (e) {

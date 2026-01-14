@@ -2,6 +2,7 @@
 
 import { toast } from "sonner";
 import { useState } from "react";
+import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -191,6 +192,25 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     <option value="APPROVED">Onaylananlar</option>
                     <option value="COMPLETED">Tamamlananlar</option>
                 </select>
+                <div className="ml-auto">
+                    <ExportButton
+                        data={filtered.map(p => ({
+                            "Sistem Kodu": p.systemCode,
+                            "Ürün Adı": p.name,
+                            "Model": p.model,
+                            "Firma": p.company,
+                            "Malzeme": p.material,
+                            "Açıklama": p.description,
+                            "Raf": p.shelf,
+                            "Planlanan": p.quantity,
+                            "Üretilen": p.produced,
+                            "Termin": new Date(p.terminDate).toLocaleDateString('tr-TR'),
+                            "Durum": p.status,
+                            "Barkod": p.barcode
+                        }))}
+                        filename="depo-listesi"
+                    />
+                </div>
             </div>
 
             <div className="rounded-md border bg-white">
