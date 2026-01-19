@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 
-export type FeatureCategory = 'FOOT_TYPE' | 'FOOT_MATERIAL' | 'ARM_TYPE' | 'BACK_TYPE' | 'FABRIC_TYPE';
+export type FeatureCategory = 'FOOT_TYPE' | 'FOOT_MATERIAL' | 'ARM_TYPE' | 'BACK_TYPE' | 'FABRIC_TYPE' | 'MODEL';
 
 export async function getFeatures(category: FeatureCategory) {
     return await prisma.productFeature.findMany({

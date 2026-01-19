@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { addFeature, deleteFeature, getFeatures, FeatureCategory } from "@/lib/feature-actions";
 import { X, Plus, Loader2 } from "lucide-react";
+import { EditCatalogDialog } from "@/components/edit-catalog-dialog";
 
 interface FeatureManagerProps {
     userRole: string;
@@ -20,16 +21,18 @@ const CATEGORIES: { key: FeatureCategory; label: string }[] = [
     { key: "ARM_TYPE", label: "Kol Modeli" },
     { key: "BACK_TYPE", label: "Sırt Modeli" },
     { key: "FABRIC_TYPE", label: "Kumaş Türü" },
+    { key: "MODEL", label: "Model" },
 ];
 
 export function FeatureManager({ userRole }: FeatureManagerProps) {
-    const [activeTab, setActiveTab] = useState<FeatureCategory>("FOOT_TYPE");
+    const [activeTab, setActiveTab] = useState<FeatureCategory | "CATALOG">("CATALOG");
     const [features, setFeatures] = useState<{ id: number; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [newFeature, setNewFeature] = useState("");
     const [adding, setAdding] = useState(false);
 
-    const fetchFeatures = async (category: FeatureCategory) => {
+    const fetchFeatures = async (category: FeatureCategory | "CATALOG") => {
+        if (category === "CATALOG") return; // Handled separately
         setLoading(true);
         try {
             const data = await getFeatures(category);
@@ -46,6 +49,7 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
     }, [activeTab]);
 
     const handleAdd = async () => {
+        if (activeTab === "CATALOG") return;
         if (!newFeature.trim()) return;
         setAdding(true);
         const res = await addFeature(activeTab, newFeature);
@@ -61,6 +65,7 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
     };
 
     const handleDelete = async (id: number) => {
+        if (activeTab === "CATALOG") return;
         if (!confirm("Bu özelliği silmek istediğinize emin misiniz?")) return;
 
         const res = await deleteFeature(id);
@@ -73,52 +78,68 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
     };
 
     // Catalog State
-    const [catalogItems, setCatalogItems] = useState<{ id: number; code: string; name: string }[]>([]);
+    const [catalogItems, setCatalogItems] = useState<{ id: number; code: string; name: string; imageUrl?: string | null }[]>([]);
     const [newCatalogCode, setNewCatalogCode] = useState("");
     const [newCatalogName, setNewCatalogName] = useState("");
+    const [newCatalogImage, setNewCatalogImage] = useState<File | null>(null);
     const [catalogLoading, setCatalogLoading] = useState(false);
 
-    // Import these dynamically or keep them here if possible
-    // Note: In Next.js App Router, using server actions directly in client components is fine if they are 'use server'.
-    // Adjusting to direct imports if possible, but 'require' inside component can be tricky.
-    // Let's assume catalog-actions are properly exported.
-    // For now, I will keep the require but ensure it's used safely or move to top imports if I could.
-    // Actually, 'require' inside body might re-require every render. Better to use standard import if possible, 
-    // but since I cannot edit top of file easily with this chunk, I will stick to what was attempted but fix the structure.
-    // Actually, I can use the imported actions if I add them to imports, but I'll stick to 'require' for now to match the intent 
-    // OR better, I should just assume standard imports are available if I added them to top.
-    // Wait, I didn't add them to top. I will use `require` inside useEffect or handlers to avoid issues, or just use `require` once.
-    // However, `catalog-actions` is a server action file.
+    // Pagination & Search State
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [searchQuery, setSearchQuery] = useState("");
 
-    // To fix the build error immediately, I will use require inside the functions or useEffect to ensure it's available.
-    // Or simpler: I will assume the previous 'require' strategy was desired, but place it correctly.
-
-    // BETTER STRATEGY: I will use a separate useEffect to load catalog actions to avoid "require" issues if any.
-    // But simplest fix for the syntax error is just code structure.
-
+    // Debounce search
     useEffect(() => {
         if (activeTab === "CATALOG") {
-            const { getCatalog } = require("@/lib/catalog-actions");
-            const load = async () => {
-                setCatalogLoading(true);
-                try {
-                    const data = await getCatalog();
-                    setCatalogItems(data);
-                } catch (e) { toast.error("Katalog yüklenemedi"); }
-                finally { setCatalogLoading(false); }
-            };
-            load();
+            const timer = setTimeout(() => {
+                loadCatalog(1, searchQuery);
+            }, 500);
+            return () => clearTimeout(timer);
         }
-    }, [activeTab]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchQuery, activeTab]);
+
+    const loadCatalog = async (p: number, q: string) => {
+        setCatalogLoading(true);
+        try {
+            const { getCatalog } = require("@/lib/catalog-actions");
+            const { items, totalPages: pages } = await getCatalog(p, q);
+            setCatalogItems(items);
+            setTotalPages(pages);
+            setPage(p);
+        } catch (e) {
+            // toast.error("Katalog yüklenemedi");
+        } finally {
+            setCatalogLoading(false);
+        }
+    };
+
+    const handlePageChange = (newPage: number) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            loadCatalog(newPage, searchQuery);
+        }
+    }
 
     const handleAddCatalog = async () => {
         if (!newCatalogCode.trim() || !newCatalogName.trim()) {
             toast.error("Kod ve İsim gereklidir");
             return;
         }
+        if (!newCatalogImage) {
+            toast.error("Ürün resmi zorunludur");
+            return;
+        }
+
         setAdding(true);
         const { addToCatalog } = require("@/lib/catalog-actions");
-        const res = await addToCatalog(newCatalogCode, newCatalogName);
+
+        const formData = new FormData();
+        formData.append("code", newCatalogCode);
+        formData.append("name", newCatalogName);
+        formData.append("image", newCatalogImage);
+
+        const res = await addToCatalog(formData);
         setAdding(false);
 
         if (res.error) {
@@ -127,10 +148,9 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
             toast.success("Kataloğa eklendi");
             setNewCatalogCode("");
             setNewCatalogName("");
-            // Reload
-            const { getCatalog } = require("@/lib/catalog-actions");
-            const data = await getCatalog();
-            setCatalogItems(data);
+            setNewCatalogImage(null);
+            // Reset file input via key or ref if needed, but key={} on input is easier
+            loadCatalog(1, searchQuery);
         }
     };
 
@@ -142,10 +162,7 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
             toast.error(res.error);
         } else {
             toast.success("Silindi");
-            // Reload
-            const { getCatalog } = require("@/lib/catalog-actions");
-            const data = await getCatalog();
-            setCatalogItems(data);
+            loadCatalog(page, searchQuery);
         }
     };
 
@@ -163,55 +180,116 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
                     <CardHeader>
                         <CardTitle>Ürün Kataloğu Yönetimi</CardTitle>
                         <CardDescription>
-                            Sık kullanılan ürünlerin Kod ve Ad bilgilerini tanımlayın.
+                            Sık kullanılan ürünlerin Kod, Ad ve Resim bilgilerini tanımlayın.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="flex gap-2 items-end">
-                            <div className="grid gap-2 flex-1">
-                                <Label>Ürün Kodu</Label>
+                        {/* Search and Add */}
+                        <div className="flex flex-col gap-4">
+                            <div className="flex items-center gap-2">
                                 <Input
-                                    placeholder="Örn: SANDALYE-X1"
-                                    value={newCatalogCode}
-                                    onChange={(e) => setNewCatalogCode(e.target.value)}
+                                    placeholder="Katalogda Ara..."
+                                    className="max-w-sm"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
                                 />
                             </div>
-                            <div className="grid gap-2 flex-[2]">
-                                <Label>Ürün Adı</Label>
-                                <Input
-                                    placeholder="Örn: Ahşap Sandalye 2024"
-                                    value={newCatalogName}
-                                    onChange={(e) => setNewCatalogName(e.target.value)}
-                                    onKeyDown={(e) => e.key === "Enter" && handleAddCatalog()}
-                                />
+
+                            <div className="flex gap-2 items-end border-t pt-4 flex-wrap">
+                                <div className="grid gap-2 flex-1 min-w-[150px]">
+                                    <Label>Yeni Ürün Kodu</Label>
+                                    <Input
+                                        placeholder="Örn: SANDALYE-X1"
+                                        value={newCatalogCode}
+                                        onChange={(e) => setNewCatalogCode(e.target.value)}
+                                    />
+                                </div>
+                                <div className="grid gap-2 flex-[2] min-w-[200px]">
+                                    <Label>Yeni Ürün Adı</Label>
+                                    <Input
+                                        placeholder="Örn: Ahşap Sandalye 2024"
+                                        value={newCatalogName}
+                                        onChange={(e) => setNewCatalogName(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleAddCatalog()}
+                                    />
+                                </div>
+                                <div className="grid gap-2 flex-1 min-w-[200px]">
+                                    <Label>Ürün Resmi <span className="text-red-500">*</span></Label>
+                                    <Input
+                                        key={newCatalogImage ? "loaded" : "empty"} // Reset hack
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => setNewCatalogImage(e.target.files?.[0] || null)}
+                                    />
+                                </div>
+                                <Button onClick={handleAddCatalog} disabled={adding}>
+                                    {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                    Ekle
+                                </Button>
                             </div>
-                            <Button onClick={handleAddCatalog} disabled={adding}>
-                                {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                Ekle
-                            </Button>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mt-4">
                             {catalogLoading ? (
                                 <div className="col-span-full text-center py-4 text-muted-foreground">Yükleniyor...</div>
                             ) : catalogItems.length === 0 ? (
-                                <div className="col-span-full text-center py-4 text-muted-foreground">Kayıtlı ürün yok.</div>
+                                <div className="col-span-full text-center py-4 text-muted-foreground">Kayıt bulunamadı.</div>
                             ) : (
                                 catalogItems.map((item) => (
                                     <div key={item.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-sm">{item.code}</span>
-                                            <span className="text-sm text-slate-600 truncate" title={item.name}>{item.name}</span>
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            {item.imageUrl ? (
+                                                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-slate-100">
+                                                    <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-10 w-10 shrink-0 bg-slate-100 rounded-md border" />
+                                            )}
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="font-bold text-sm truncate">{item.code}</span>
+                                                <span className="text-sm text-slate-600 truncate" title={item.name}>{item.name}</span>
+                                            </div>
                                         </div>
                                         {userRole === "ADMIN" && (
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive shrink-0" onClick={() => handleDeleteCatalog(item.id)}>
-                                                <X className="h-4 w-4" />
-                                            </Button>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <EditCatalogDialog
+                                                    product={item}
+                                                    onSuccess={() => loadCatalog(page, searchQuery)}
+                                                />
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteCatalog(item.id)}>
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         )}
                                     </div>
                                 ))
                             )}
                         </div>
+
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={page <= 1}
+                                    onClick={() => handlePageChange(page - 1)}
+                                >
+                                    Önceki
+                                </Button>
+                                <span className="text-sm text-muted-foreground">
+                                    Sayfa {page} / {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={page >= totalPages}
+                                    onClick={() => handlePageChange(page + 1)}
+                                >
+                                    Sonraki
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </TabsContent>

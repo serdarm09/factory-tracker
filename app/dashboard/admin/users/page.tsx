@@ -40,7 +40,7 @@ export default async function UsersPage() {
                                         <TableCell>{u.username}</TableCell>
                                         <TableCell>{u.role}</TableCell>
                                         <TableCell>
-                                            {u.username !== 'admin' && (
+                                            {u.id !== parseInt((session?.user as any)?.id) && (
                                                 <DeleteUserButton userId={u.id} />
                                             )}
                                         </TableCell>

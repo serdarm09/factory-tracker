@@ -107,11 +107,12 @@ export default function ProductionPage() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Raf / Konum (Opsiyonel)</label>
+                                <label className="text-sm font-medium">Raf / Konum (Zorunlu)</label>
                                 <Input
                                     placeholder="ör. A-12"
                                     value={shelf}
                                     onChange={e => setShelf(e.target.value)}
+                                    required
                                 />
                             </div>
 
@@ -141,13 +142,19 @@ function ProductionQueue() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetch('/api/production/queue')
-            .then(res => res.json())
-            .then(data => {
-                setList(data);
-                setLoading(false);
-            })
-            .catch(() => setLoading(false));
+        const fetchQueue = () => {
+            fetch('/api/production/queue')
+                .then(res => res.json())
+                .then(data => {
+                    setList(data);
+                    setLoading(false);
+                })
+                .catch(() => setLoading(false));
+        };
+
+        fetchQueue();
+        const interval = setInterval(fetchQueue, 10000);
+        return () => clearInterval(interval);
     }, []);
 
     if (loading) return <div className="text-sm text-slate-500">Yükleniyor...</div>;

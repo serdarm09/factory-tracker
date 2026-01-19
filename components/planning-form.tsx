@@ -1,6 +1,6 @@
 'use client';
 
-import { createProduct } from "@/lib/actions";
+import { createProduct, updateProduct } from "@/lib/actions";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,9 +15,27 @@ import { cn } from "@/lib/utils";
 import { ProductCombobox } from "./product-combobox";
 import { FeatureCombobox } from "./feature-combobox";
 
-export function PlanningForm() {
+interface PlanningFormProps {
+    product?: any; // Start with any to avoid type issues, refine later
+    onSuccess?: () => void;
+}
+
+export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
     const formRef = useRef<HTMLFormElement>(null);
-    const [date, setDate] = useState<Date>();
+    const [date, setDate] = useState<Date | undefined>(product ? new Date(product.terminDate) : undefined);
+
+    // Initial state from product if editing
+    const [selectedProduct, setSelectedProduct] = useState<{ code: string, name: string, imageUrl?: string | null } | null>(
+        product ? { code: product.systemCode, name: product.name, imageUrl: product.imageUrl } : null
+    );
+    const [orderDate, setOrderDate] = useState<Date | undefined>(product?.orderDate ? new Date(product.orderDate) : new Date());
+
+    const [footType, setFootType] = useState(product?.footType || "");
+    const [footMaterial, setFootMaterial] = useState(product?.footMaterial || "");
+    const [armType, setArmType] = useState(product?.armType || "");
+    const [backType, setBackType] = useState(product?.backType || "");
+    const [fabricType, setFabricType] = useState(product?.fabricType || "");
+    const [model, setModel] = useState(product?.model || "");
 
     async function clientAction(formData: FormData) {
         if (!date) {
@@ -31,41 +49,47 @@ export function PlanningForm() {
             return;
         }
 
-        const res = await createProduct(formData);
+        let res;
+        if (product) {
+            res = await updateProduct(product.id, formData);
+        } else {
+            res = await createProduct(formData);
+        }
+
         if (res?.error) {
             toast.error(res.error);
         } else {
-            toast.success("Ürün başarıyla plana eklendi");
-            formRef.current?.reset();
-            setDate(undefined);
-            setOrderDate(new Date()); // Reset to today
-            setFootType("");
-            setFootMaterial("");
-            setArmType("");
-            setBackType("");
-            setFabricType("");
-            setSelectedProduct(null);
+            toast.success(product ? "Ürün güncellendi" : "Ürün başarıyla plana eklendi");
+            if (!product) {
+                // Complete Reset
+                formRef.current?.reset();
+
+                // Reset all state variables
+                setDate(undefined);
+                setOrderDate(new Date());
+
+                setFootType("");
+                setFootMaterial("");
+                setArmType("");
+                setBackType("");
+                setFabricType(""); // Reset fabric
+                setModel("");
+
+                setSelectedProduct(null);
+            }
+            if (onSuccess) onSuccess();
         }
     }
 
-
-    const [selectedProduct, setSelectedProduct] = useState<{ code: string, name: string } | null>(null);
-    const [orderDate, setOrderDate] = useState<Date | undefined>(new Date());
-    const [footType, setFootType] = useState("");
-    const [footMaterial, setFootMaterial] = useState("");
-    const [armType, setArmType] = useState("");
-    const [backType, setBackType] = useState("");
-    const [fabricType, setFabricType] = useState("");
-
-    function handleProductSelect(product: { code: string; name: string }) {
-        setSelectedProduct(product);
+    function handleProductSelect(selected: { code: string; name: string; imageUrl?: string | null }) {
+        setSelectedProduct(selected);
         if (formRef.current) {
-            // Auto fill fields
             const form = formRef.current;
-            (form.elements.namedItem('name') as HTMLInputElement).value = product.name;
-            (form.elements.namedItem('systemCode') as HTMLInputElement).value = product.code;
-            // Assuming model might be related or empty, for now just name and code
-            // User requested "product code entered -> product name auto entered"
+            const nameInput = form.elements.namedItem('name') as HTMLInputElement;
+            const codeInput = form.elements.namedItem('systemCode') as HTMLInputElement;
+
+            if (nameInput) nameInput.value = selected.name;
+            if (codeInput) codeInput.value = selected.code;
         }
     }
 
@@ -75,6 +99,47 @@ export function PlanningForm() {
                 <Label>Ürün Ara (Katalogdan Seç)</Label>
                 <div className="w-full">
                     <ProductCombobox onSelect={handleProductSelect} />
+                </div>
+            </div>
+
+            {/* Image Upload and Preview */}
+            <div className="space-y-2">
+                <Label htmlFor="image">Ürün Resmi</Label>
+                <div className="flex gap-4 items-start">
+                    {/* Preview Area */}
+                    {(selectedProduct?.imageUrl) && (
+                        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md border bg-slate-50">
+                            <img
+                                src={selectedProduct.imageUrl}
+                                alt="Preview"
+                                className="h-full w-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                <span className="text-white text-xs font-bold bg-black/50 px-2 py-1 rounded">Katalog</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex-1 space-y-2">
+                        <Input
+                            id="image"
+                            name="image"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                                // Optional: Client-side preview logic could go here
+                            }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            {selectedProduct?.imageUrl
+                                ? "Yeni bir resim yüklerseniz, katalogdaki resim yerine o kullanılacaktır."
+                                : "Ürün resmi yükleyebilirsiniz."}
+                        </p>
+                        {/* Always pass existing URL if we have one, server decides which to use */}
+                        {selectedProduct?.imageUrl && (
+                            <input type="hidden" name="existingImageUrl" value={selectedProduct.imageUrl} />
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -88,23 +153,25 @@ export function PlanningForm() {
                         required
                         placeholder="Sandalye X1"
                         maxLength={100}
+                        defaultValue={product?.name}
                         readOnly={!!selectedProduct}
                         className={selectedProduct ? "bg-slate-100 text-slate-600" : ""}
                     />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="model">Model</Label>
-                    <Input id="model" name="model" required placeholder="V2024" maxLength={50} />
+                    <FeatureCombobox category="MODEL" placeholder="Model Seçin" onSelect={setModel} initialValue={model} />
+                    <input type="hidden" name="model" value={model} />
                 </div>
             </div>
             <div className="space-y-2">
                 <Label htmlFor="company">Firma / Müşteri</Label>
-                <Input id="company" name="company" placeholder="ABC Mobilya" maxLength={100} />
+                <Input id="company" name="company" placeholder="ABC Mobilya" maxLength={100} defaultValue={product?.company || ""} />
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label htmlFor="quantity">Adet</Label>
-                    <Input id="quantity" name="quantity" type="number" required min="1" max="100000" />
+                    <Input id="quantity" name="quantity" type="number" required min="1" max="100000" defaultValue={product?.quantity} />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="systemCode">Ürün Kodu</Label>
@@ -114,6 +181,7 @@ export function PlanningForm() {
                         required
                         placeholder="SYS-001"
                         maxLength={20}
+                        defaultValue={product?.systemCode}
                         readOnly={!!selectedProduct}
                         className={selectedProduct ? "bg-slate-100 text-slate-600 font-mono" : "font-mono"}
                     />
@@ -121,14 +189,16 @@ export function PlanningForm() {
             </div>
 
             {/* Checkbox to add to catalog if manual entry */}
-            {!selectedProduct && (
-                <div className="flex items-center space-x-2 border p-3 rounded-md bg-blue-50/50">
-                    <input type="checkbox" id="saveToCatalog" name="saveToCatalog" value="true" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                    <Label htmlFor="saveToCatalog" className="cursor-pointer font-normal text-blue-900">
-                        Bu ürünü (Kod ve İsim) kataloğa da kaydet
-                    </Label>
-                </div>
-            )}
+            {
+                !selectedProduct && !product && (
+                    <div className="flex items-center space-x-2 border p-3 rounded-md bg-blue-50/50">
+                        <input type="checkbox" id="saveToCatalog" name="saveToCatalog" value="true" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        <Label htmlFor="saveToCatalog" className="cursor-pointer font-normal text-blue-900">
+                            Bu ürünü (Kod ve İsim) kataloğa da kaydet
+                        </Label>
+                    </div>
+                )
+            }
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2 flex flex-col">
@@ -151,6 +221,7 @@ export function PlanningForm() {
                                 mode="single"
                                 selected={orderDate}
                                 onSelect={setOrderDate}
+                                locale={tr}
                                 disabled={(date) => date > new Date()}
                                 initialFocus
                             />
@@ -179,6 +250,7 @@ export function PlanningForm() {
                                 mode="single"
                                 selected={date}
                                 onSelect={setDate}
+                                locale={tr}
                                 disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                                 initialFocus
                             />
@@ -195,7 +267,7 @@ export function PlanningForm() {
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label>Ayak Modeli</Label>
-                        <FeatureCombobox category="FOOT_TYPE" placeholder="Ayak Modeli Seç" onSelect={setFootType} />
+                        <FeatureCombobox category="FOOT_TYPE" placeholder="Ayak Modeli Seç" onSelect={setFootType} initialValue={footType} />
                         <input type="hidden" name="footType" value={footType} />
                     </div>
                     <div className="space-y-2">
@@ -205,6 +277,7 @@ export function PlanningForm() {
                             placeholder="Materyal/Renk Seç"
                             onSelect={setFootMaterial}
                             disabled={!footType}
+                            initialValue={footMaterial}
                         />
                         <input type="hidden" name="footMaterial" value={footMaterial} />
                     </div>
@@ -213,26 +286,34 @@ export function PlanningForm() {
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label>Kol Modeli</Label>
-                        <FeatureCombobox category="ARM_TYPE" placeholder="Kol Tipi Seç" onSelect={setArmType} />
+                        <FeatureCombobox category="ARM_TYPE" placeholder="Kol Tipi Seç" onSelect={setArmType} initialValue={armType} />
                         <input type="hidden" name="armType" value={armType} />
                     </div>
                     <div className="space-y-2">
                         <Label>Sırt Modeli</Label>
-                        <FeatureCombobox category="BACK_TYPE" placeholder="Sırt Tipi Seç" onSelect={setBackType} />
+                        <FeatureCombobox category="BACK_TYPE" placeholder="Sırt Tipi Seç" onSelect={setBackType} initialValue={backType} />
                         <input type="hidden" name="backType" value={backType} />
                     </div>
                 </div>
 
+                {/* Combined Fabric Field */}
                 <div className="space-y-2">
                     <Label>Kumaş / Deri Tipi</Label>
-                    <FeatureCombobox category="FABRIC_TYPE" placeholder="Kumaş/Deri Seç" onSelect={setFabricType} />
+                    <div className="space-y-1">
+                        <FeatureCombobox
+                            category="FABRIC_TYPE"
+                            placeholder="Kumaş veya Deri Seçin (veya yazıp ekleyin)"
+                            onSelect={setFabricType}
+                            initialValue={fabricType}
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                            * Listede yoksa, ismini yazıp "Ekle" butonuna basarak yeni oluşturabilirsiniz.
+                        </p>
+                    </div>
+                    {/* We send this as 'fabricType' which matches the DB field now used for all material info */}
                     <input type="hidden" name="fabricType" value={fabricType} />
+                    {/* Note: 'material' field is kept in DB but we are deprecating its usage in the form for better structure */}
                 </div>
-            </div>
-
-            <div className="space-y-2">
-                <Label htmlFor="material">Malzeme / Kumaş / Deri</Label>
-                <Input id="material" name="material" placeholder="Örn: Nubuk Deri, Gri Kumaş..." maxLength={100} />
             </div>
 
             <div className="space-y-2">
@@ -243,10 +324,14 @@ export function PlanningForm() {
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="Ekstra istekler, dikiş detayları vb. (Max 500 karakter)"
                     maxLength={500}
+                    defaultValue={product?.description || ""}
                 />
+
+                {/* Preserve Shelf if existing (required by updateProduct, though we relaxed it, good to keep it) */}
+                <input type="hidden" name="shelf" value={product?.shelf || ""} />
             </div>
 
-            <Button type="submit" className="w-full">Plana Ekle</Button>
-        </form>
+            <Button type="submit" className="w-full">{product ? "Güncelle ve Tekrar Gönder" : "Plana Ekle"}</Button>
+        </form >
     );
 }

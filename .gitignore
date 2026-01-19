@@ -9,10 +9,29 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+/temp_import_zip
+/MAMULLER.xlsx
+/ÜrünResimli.xlsx
+/ÜrünResimli.zip
+/inspection_result.txt
+/inspection.txt
+/py.py
+/import%all%    
+/analysis_report.txt
+/uploads/temp_import_zip
+/public/temp_full_extract
+/scripts
+/temp_full_extract
+/*.xlsx
+/*.zip
+/*.txt
+/*.py
+/*.csv
+/*.db
 
 # testing
 /coverage
-
+/public/uploads
 # next.js
 /.next/
 /out/

@@ -1,4 +1,4 @@
-
+//Hoş Geldin Ben yazdım serdarmemed@mail.com '-_-'  
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
@@ -8,7 +8,8 @@ export async function GET() {
             status: 'APPROVED',
             barcode: { not: null }
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        include: { inventory: true }
     });
 
     // Filter out if already fully produced (just in case status wasn't updated)

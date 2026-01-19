@@ -11,61 +11,153 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
-  role      String   // ADMIN, PLANNER, WORKER, VIEWER
+  role      String   // ADMIN, PLANNER, MARKETER, WORKER, VIEWER
   createdProducts Product[] @relation("CreatedProducts")
+  createdOrders   Order[]   @relation("CreatedOrders")
   createdAt DateTime @default(now())
   logs      ProductionLog[]
   auditLogs AuditLog[]
+  supportTickets SupportTicket[]
+  assignedProducts Product[] @relation("ProductMaster")
 }
 
+// Order Grouping (Sipariş)
+model Order {
+  id          Int       @id @default(autoincrement())
+  name        String    // Sipariş Adı / Ref
+  company     String    // Müşteri / Firma
+  status      String    @default("REQUESTED") // REQUESTED, PLANNED, APPROVED, COMPLETED, CANCELLED
+  marketingById Int?
+  marketingBy User?     @relation("CreatedOrders", fields: [marketingById], references: [id])
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Product Line Item (Ürün / İş Emri)
 model Product {
   id          Int      @id @default(autoincrement())
+  orderId     Int?
+  order       Order?   @relation(fields: [orderId], references: [id])
+  
   name        String
   model       String
-  company     String?  // Company / Customer name
-  quantity    Int      // Total planned
-  shelf       String   // Shelf location (required)
-  produced    Int      @default(0) // Total produced
-
-
-  orderDate   DateTime @default(now()) // Sipariş Tarihi
-  terminDate  DateTime
-  material    String?  // Kumaş, Deri vb.
-  description String?  // Müşteri isteği / Açıklama (Max 500)
   
-  // New Configuration Fields
+  // Quantities
+  quantity    Int      // Planlanan Adet
+  produced    Int      @default(0) // Toplam Üretilen
+  
+  // Dates
+  orderDate   DateTime @default(now())
+  terminDate  DateTime? // Planlama tarafından girilecek (Optional initially)
+  
+  // Specs
+  material    String?
+  description String?
+  marketingDescription String? // Pazarlamacı notu
+  rejectionReason String? // Red nedeni
+  imageUrl    String?
+
+  // Config
   footType     String?
   footMaterial String?
   armType      String?
   backType     String?
   fabricType   String?
   
-  status      String   @default("PENDING") // PENDING, APPROVED, COMPLETED
-  createdById Int?   // ID of user who created the plan
-  creator     User? @relation("CreatedProducts", fields: [createdById], references: [id])
+  masterId    Int?
+  master      User?    @relation("ProductMaster", fields: [masterId], references: [id])
+
+  status      String   @default("PENDING") 
+  createdById Int?
+  creator     User?    @relation("CreatedProducts", fields: [createdById], references: [id])
+  
   systemCode  String   @unique
   barcode     String?  @unique
+  
   createdAt   DateTime @default(now())
+  
+  // Relations
   logs        ProductionLog[]
+  inventory   Inventory[]
+  bom         BomItem[]
+  shipmentItems ShipmentItem[]
 }
 
+// Multi-Shelf Inventory (Raf Stok)
+model Inventory {
+  id        Int      @id @default(autoincrement())
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  shelf     String
+  quantity  Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, shelf])
+}
+
+// Production Log
 model ProductionLog {
   id        Int      @id @default(autoincrement())
   product   Product  @relation(fields: [productId], references: [id])
   productId Int
   quantity  Int
-  shelf     String?
+  shelf     String?  // Logged for history, even if Inventory is source of truth
   user      User     @relation(fields: [userId], references: [id])
   userId    Int
   createdAt DateTime @default(now())
 }
 
+// Shipment (Sevkiyat)
+model Shipment {
+  id            Int      @id @default(autoincrement())
+  company       String
+  driverName    String?
+  vehiclePlate  String?
+  exitDate      DateTime? // Actual exit date (optional until shipped)
+  estimatedDate DateTime? // Planned exit date
+  status        String   @default("PLANNED") // PLANNED, SHIPPED, DELIVERED
+  items         ShipmentItem[]
+  createdAt     DateTime @default(now())
+}
+
+model ShipmentItem {
+  id          Int      @id @default(autoincrement())
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+  shipmentId  Int
+  product     Product  @relation(fields: [productId], references: [id])
+  productId   Int
+  quantity    Int
+}
+
+// MRP: Raw Materials / Parts
+model Part {
+  id        Int      @id @default(autoincrement())
+  name      String
+  stock     Int      @default(0)
+  onOrder   Int      @default(0) // Miktar (Sipariş edilen)
+  threshold Int      @default(10) // Kritik stok seviyesi
+  unit      String   @default("adt")
+  createdAt DateTime @default(now())
+  bomItems  BomItem[]
+}
+
+// Bill of Materials (Reçete)
+model BomItem {
+  id        Int     @id @default(autoincrement())
+  product   Product @relation(fields: [productId], references: [id])
+  productId Int
+  part      Part    @relation(fields: [partId], references: [id])
+  partId    Int
+  quantity  Int     // Quantity required per 1 unit of Product
+}
+
 model AuditLog {
   id        Int      @id @default(autoincrement())
-  action    String   // CREATE, UPDATE, DELETE, APPROVE, REJECT, CANCEL
-  entity    String   // Product, User, etc.
-  entityId  String   // SystemCode or ID
-  details   String?  // JSON or text description of changes
+  action    String
+  entity    String
+  entityId  String
+  details   String?
   userId    Int
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
@@ -77,11 +169,24 @@ model ProductCatalog {
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  imageUrl  String?
 }
 
 model ProductFeature {
   id        Int      @id @default(autoincrement())
-  category  String   // FOOT_TYPE, FOOT_MATERIAL, ARM_TYPE, BACK_TYPE, FABRIC_TYPE
+  category  String
   name      String
   createdAt DateTime @default(now())
+}
+
+model SupportTicket {
+  id        Int      @id @default(autoincrement())
+  title     String
+  description String
+  status    String   @default("OPEN")
+  priority  String   @default("NORMAL")
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -6,13 +6,16 @@ import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { updateProduct } from "@/lib/actions";
 import { Pencil } from "lucide-react";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
+import { format } from "date-fns";
+import { tr } from "date-fns/locale";
+import { ProductImage } from "@/components/product-image";
 
 
 type Product = {
@@ -28,7 +31,17 @@ type Product = {
     terminDate: Date;
     material?: string | null;
     description?: string | null;
-    shelf?: string | null;
+    // shelf?: string | null; // Removed
+    inventory: { shelf: string; quantity: number }[];
+    createdAt: Date;
+    creator?: { username: string };
+    orderDate?: Date;
+    footType?: string;
+    footMaterial?: string;
+    armType?: string;
+    backType?: string;
+    fabricType?: string;
+    imageUrl?: string | null;
 };
 
 function EditProductDialog({ product, role }: { product: Product, role: string }) {
@@ -87,10 +100,14 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                             <Label>Termin Tarihi</Label>
                             <Input name="terminDate" type="date" defaultValue={new Date(product.terminDate).toISOString().split('T')[0]} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
                         </div>
+                        {/* Shelf is managed via Production/Transfer 
                         <div className="space-y-2">
                             <Label>Raf Kodu</Label>
-                            <Input name="shelf" defaultValue={product.shelf || ''} required maxLength={20} />
+                            <div className="p-2 bg-slate-100 rounded text-sm text-slate-600">
+                                {product.inventory?.map(i => i.shelf).join(", ") || "Rafsız"}
+                            </div>
                         </div>
+                        */}
                         <div className="space-y-2">
                             <Label>Malzeme</Label>
                             <Input name="material" defaultValue={product.material || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={100} />
@@ -130,6 +147,15 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
     const [sortColumn, setSortColumn] = useState<keyof Product | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
+    // Detail View State
+    const [viewProduct, setViewProduct] = useState<Product | null>(null);
+    const [viewOpen, setViewOpen] = useState(false);
+
+    const handleRowClick = (product: Product) => {
+        setViewProduct(product);
+        setViewOpen(true);
+    };
+
     const handleSort = (column: keyof Product) => {
         if (sortColumn === column) {
             setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -149,7 +175,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
             (p.barcode && p.barcode.toLowerCase().includes(term)) ||
             (p.company && p.company.toLowerCase().includes(term)) ||
             (p.description && p.description.toLowerCase().includes(term)) ||
-            (p.shelf && p.shelf.toLowerCase().includes(term)) ||
+            (p.description && p.description.toLowerCase().includes(term)) ||
+            (p.inventory?.some(i => i.shelf.toLowerCase().includes(term))) ||
             dateString.includes(term);
 
         const matchesStatus = statusFilter === "ALL" ? true : p.status === statusFilter;
@@ -233,11 +260,14 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             "Firma": p.company,
                             "Malzeme": p.material,
                             "Açıklama": p.description,
-                            "Raf": p.shelf,
+                            "Raf": p.inventory?.map(i => i.shelf).join(", "),
                             "Planlanan": p.quantity,
                             "Üretilen": p.produced,
                             "Termin": new Date(p.terminDate).toLocaleDateString('tr-TR'),
-                            "Durum": p.status,
+                            "Durum": p.status === 'COMPLETED' ? 'Tamamlandı' :
+                                p.status === 'APPROVED' ? 'Onaylandı' :
+                                    p.status === 'PENDING' ? 'Bekliyor' :
+                                        p.status === 'REJECTED' ? 'Reddedildi' : p.status,
                             "Barkod": p.barcode
                         }))}
                         filename="depo-listesi"
@@ -255,8 +285,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('name')}>
                                 Ürün <SortIcon column="name" />
                             </TableHead>
-                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('shelf')}>
-                                Raf <SortIcon column="shelf" />
+                            <TableHead className="cursor-pointer hover:bg-slate-50">
+                                Raf
                             </TableHead>
                             <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('material')}>
                                 Malzeme <SortIcon column="material" />
@@ -278,10 +308,14 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     </TableHeader>
                     <TableBody>
                         {filtered.map((p) => (
-                            <TableRow key={p.id} className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) && p.status !== 'COMPLETED' ? 'bg-red-50 hover:bg-red-100' :
+                            <TableRow
+                                key={p.id}
+                                className={`cursor-pointer transition-colors ${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) && p.status !== 'COMPLETED' ? 'bg-red-50 hover:bg-red-100' :
                                     new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) && p.status !== 'COMPLETED' ? 'bg-amber-50 hover:bg-amber-100' :
-                                        ''
-                                }`}>
+                                        'hover:bg-slate-50'
+                                    }`}
+                                onClick={() => handleRowClick(p)}
+                            >
                                 <TableCell className="font-mono">{p.systemCode}</TableCell>
                                 <TableCell>
                                     <div className="font-semibold">{p.name}</div>
@@ -289,7 +323,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 </TableCell>
                                 <TableCell>
                                     <div className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded inline-block font-mono font-bold text-xs">
-                                        {p.shelf || '-'}
+                                        {p.inventory?.map(i => i.shelf).join(", ") || '-'}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-sm">{p.material || '-'}</TableCell>
@@ -299,8 +333,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 <TableCell>{p.company || "-"}</TableCell>
                                 <TableCell className="text-xs font-mono">
                                     <span className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'text-red-600 font-bold' :
-                                            new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-600 font-bold' :
-                                                'text-slate-500'
+                                        new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-600 font-bold' :
+                                            'text-slate-500'
                                         }`}>
                                         {new Date(p.terminDate).toLocaleDateString('tr-TR')}
                                     </span>
@@ -321,7 +355,9 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 </TableCell>
                                 <TableCell>
                                     {role !== 'VIEWER' && (
-                                        <EditProductDialog product={p} role={role} />
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                            <EditProductDialog product={p} role={role} />
+                                        </div>
                                     )}
                                 </TableCell>
                             </TableRow>
@@ -336,6 +372,96 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     </TableBody>
                 </Table>
             </div>
+
+            {/* View Product Details Dialog */}
+            <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Ürün Detayları: {viewProduct?.name}</DialogTitle>
+                        <DialogDescription>
+                            Kod: {viewProduct?.systemCode} | Model: {viewProduct?.model}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {viewProduct && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div className="col-span-full flex justify-center">
+                                <div className="relative h-64 w-full md:w-96 mb-4 rounded-lg overflow-hidden border bg-slate-100 flex items-center justify-center">
+                                    <ProductImage
+                                        src={`/${viewProduct.systemCode}.png`}
+                                        alt={viewProduct.name}
+                                        className="object-contain w-full h-full"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <Section title="Temel Bilgiler">
+                                    <Detail label="Firma / Müşteri" value={viewProduct.company} />
+                                    <Detail label="Planlanan Adet" value={viewProduct.quantity} />
+                                    <Detail label="Üretilen / Stok" value={viewProduct.produced} />
+                                    <Detail label="Raf" value={viewProduct.inventory?.map(i => `${i.shelf} (${i.quantity})`).join(", ")} />
+                                    <Detail label="Durum" value={viewProduct.status} />
+                                    <Detail label="Barkod" value={viewProduct.barcode || '-'} />
+                                </Section>
+
+                                <Section title="Tarihler">
+                                    {viewProduct.orderDate && (
+                                        <Detail label="Sipariş Tarihi" value={format(new Date(viewProduct.orderDate), "PPP", { locale: tr })} />
+                                    )}
+                                    <Detail label="Termin Tarihi" value={format(new Date(viewProduct.terminDate), "PPP", { locale: tr })} />
+                                    <Detail label="Oluşturulma" value={format(new Date(viewProduct.createdAt), "PPP HH:mm", { locale: tr })} />
+                                </Section>
+                            </div>
+
+                            <div className="space-y-4">
+                                <Section title="Özellikler">
+                                    <Detail label="Ayak Modeli" value={viewProduct.footType} />
+                                    <Detail label="Ayak Özelliği" value={viewProduct.footMaterial} />
+                                    <Detail label="Kol Modeli" value={viewProduct.armType} />
+                                    <Detail label="Sırt Modeli" value={viewProduct.backType} />
+                                    <Detail label="Kumaş Türü" value={viewProduct.fabricType} />
+                                    <Detail label="Malzeme Detayı" value={viewProduct.material} />
+                                </Section>
+
+                                {viewProduct.creator && (
+                                    <Section title="Planlayan">
+                                        <Detail label="Kullanıcı" value={viewProduct.creator.username} />
+                                    </Section>
+                                )}
+                            </div>
+
+                            <div className="col-span-full border-t pt-4">
+                                <h4 className="font-semibold mb-2">Açıklama / Notlar</h4>
+                                <div className="p-3 bg-slate-50 rounded-md border text-sm min-h-[60px]">
+                                    {viewProduct.description || "Açıklama yok."}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function Section({ title, children }: { title: string, children: React.ReactNode }) {
+    return (
+        <div className="border rounded-md p-3">
+            <h4 className="font-semibold text-sm text-slate-900 border-b pb-1 mb-2 bg-slate-50 -mx-3 -mt-3 px-3 pt-2 rounded-t-md">{title}</h4>
+            <div className="space-y-2">
+                {children}
+            </div>
+        </div>
+    );
+}
+
+function Detail({ label, value }: { label: string, value: any }) {
+    if (!value) return null;
+    return (
+        <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{label}:</span>
+            <span className="font-medium">{value}</span>
         </div>
     );
 }

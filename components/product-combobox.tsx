@@ -1,7 +1,5 @@
-"use client"
-
 import * as React from "react"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Image as ImageIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -18,10 +16,10 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { searchCatalog } from "@/lib/actions"
+import { searchCatalog } from "@/lib/catalog-actions"
 
 interface ProductComboboxProps {
-    onSelect: (product: { code: string; name: string }) => void;
+    onSelect: (product: { code: string; name: string; imageUrl?: string | null }) => void;
 }
 
 export function ProductCombobox({ onSelect }: ProductComboboxProps) {
@@ -66,7 +64,16 @@ export function ProductCombobox({ onSelect }: ProductComboboxProps) {
                 <Command shouldFilter={false}>
                     <CommandInput placeholder="Ürün kodu veya adı ara..." value={query} onValueChange={setQuery} />
                     <CommandList>
-                        <CommandEmpty>{loading ? "Aranıyor..." : "Sonuç bulunamadı."}</CommandEmpty>
+                        <CommandEmpty>
+                            {loading ? (
+                                "Aranıyor..."
+                            ) : (
+                                <div className="py-6 text-center text-sm">
+                                    <p className="font-semibold text-slate-700">Ürün bulunamadı.</p>
+                                    <p className="text-slate-500 mt-1">Eğer yeni bir ürün ise, bilgileri manuel girerek ekleyebilirsiniz.</p>
+                                </div>
+                            )}
+                        </CommandEmpty>
                         <CommandGroup heading="Sonuçlar">
                             {results.map((product) => (
                                 <CommandItem
@@ -84,9 +91,18 @@ export function ProductCombobox({ onSelect }: ProductComboboxProps) {
                                             query === product.name ? "opacity-100" : "opacity-0"
                                         )}
                                     />
-                                    <div className="flex flex-col">
-                                        <span>{product.name}</span>
-                                        <span className="text-xs text-muted-foreground">{product.code}</span>
+                                    <div className="flex items-center gap-3 overflow-hidden w-full">
+                                        <div className="h-8 w-8 shrink-0 rounded border bg-slate-100 overflow-hidden flex items-center justify-center">
+                                            {product.imageUrl ? (
+                                                <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
+                                            ) : (
+                                                <ImageIcon className="h-4 w-4 text-slate-400 opacity-50" />
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="truncate font-medium">{product.name}</span>
+                                            <span className="text-xs text-muted-foreground truncate">{product.code}</span>
+                                        </div>
                                     </div>
                                 </CommandItem>
                             ))}

@@ -6,6 +6,7 @@ import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import BarcodeDisplay from "@/components/barcode-display";
 import { revokeApproval } from "@/lib/actions";
 import { DateRangeFilter } from "./date-range-filter";
@@ -146,7 +147,11 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                                     </div>
                                 </div>
                             </TableCell>
-                            <TableCell className="font-medium py-2">{p.name}</TableCell>
+                            <TableCell className="font-medium py-2">
+                                <Link href={`/dashboard/admin/products/${p.id}`} className="hover:underline text-blue-600 font-semibold">
+                                    {p.name}
+                                </Link>
+                            </TableCell>
                             <TableCell className="py-2">{p.model}</TableCell>
                             <TableCell className="py-2 text-sm">{p.material || '-'}</TableCell>
                             <TableCell className="py-2 max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
