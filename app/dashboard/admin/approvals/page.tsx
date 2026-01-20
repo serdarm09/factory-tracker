@@ -8,22 +8,30 @@ import { ApproveButton } from "@/components/approve-button";
 import { RejectButton } from "@/components/reject-button";
 import { ApprovedTable } from "@/components/approved-table";
 import { PendingApprovalsTable } from "@/components/pending-approvals-table";
+import { auth } from "@/lib/auth";
 
 import { AutoRefresh } from "@/components/auto-refresh";
 
 export default async function ApprovalsPage() {
+    const session = await auth();
+    const userRole = (session?.user as any)?.role;
+
     const pendingProducts = await prisma.product.findMany({
         where: { status: 'PENDING' },
         orderBy: { createdAt: 'desc' },
         include: {
-            creator: true
+            creator: true,
+            order: true // Order bilgisini dahil et
         }
     });
 
     const approvedProducts = await prisma.product.findMany({
         where: { status: { in: ['APPROVED', 'COMPLETED'] } },
         take: 50,
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        include: {
+            order: true // Order bilgisini dahil et
+        }
     });
 
     return (
@@ -35,7 +43,7 @@ export default async function ApprovalsPage() {
                     <CardTitle>Onay Bekleyenler</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <PendingApprovalsTable pendingProducts={pendingProducts} />
+                    <PendingApprovalsTable pendingProducts={pendingProducts} userRole={userRole} />
                 </CardContent>
             </Card>
 

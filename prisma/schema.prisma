@@ -205,3 +205,14 @@ model SemiFinished {
   updatedAt   DateTime @updatedAt
   logs        SemiFinishedLog[]
 }
+
+// Yarı Mamül Stok Hareketi
+model SemiFinishedLog {
+  id              Int          @id @default(autoincrement())
+  semiFinished    SemiFinished @relation(fields: [semiFinishedId], references: [id])
+  semiFinishedId  Int
+  type            String       // IN (giriş), OUT (çıkış)
+  quantity        Int
+  note            String?
+  createdAt       DateTime     @default(now())
+}

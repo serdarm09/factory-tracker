@@ -137,7 +137,7 @@ export async function cancelProduct(id: number) {
     if (!product) return { error: "Bulunamadı" };
 
     if (product.status === "APPROVED" && role !== "ADMIN") {
-        return { error: "Onaylanmış ürünleri sadece Admin iptal edebilir" };
+        return { error: "Onaylanmış ürünleri sadece Yönetici iptal edebilir" };
     }
 
     try {
@@ -162,6 +162,20 @@ export async function updateProduct(id: number, formData: FormData) {
 
     if (!session || !["ADMIN", "PLANNER", "WORKER"].includes(role)) {
         return { error: "Yetkisiz işlem" };
+    }
+
+    // Önce ürünü kontrol et - onaylanmış ürünleri sadece admin düzenleyebilir
+    const existingProduct = await prisma.product.findUnique({ where: { id } });
+    if (!existingProduct) {
+        return { error: "Ürün bulunamadı" };
+    }
+
+    const isApprovedOrCompleted = existingProduct.status === 'APPROVED' ||
+        existingProduct.status === 'COMPLETED' ||
+        existingProduct.status === 'IN_PRODUCTION';
+
+    if (isApprovedOrCompleted && role !== 'ADMIN') {
+        return { error: "Onaylanmış ürünleri sadece Yönetici düzenleyebilir" };
     }
 
     const name = formData.get("name") as string;
@@ -194,10 +208,8 @@ export async function updateProduct(id: number, formData: FormData) {
 
     // Produced update logic removed/ignored as per comments
 
-    const product = await prisma.product.findUnique({ where: { id } });
-
-    // Status logic
-    if (product && product.status === 'REJECTED') {
+    // Status logic - existingProduct zaten yukarıda çekildi
+    if (existingProduct.status === 'REJECTED') {
         updates.status = 'PENDING';
         updates.rejectionReason = null;
     }
@@ -806,5 +818,279 @@ function translateAction(action: string) {
         case 'CANCEL': return 'İptal Edildi';
         case 'CREATE_FEATURE': return 'Özellik Eklendi';
         default: return action;
+    }
+}
+
+// --- Yarı Mamül Actions ---
+
+export async function createSemiFinished(formData: FormData) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+
+    const code = formData.get("code") as string;
+    const name = formData.get("name") as string;
+    const description = formData.get("description") as string;
+    const quantity = parseInt(formData.get("quantity") as string) || 0;
+    const minStock = parseInt(formData.get("minStock") as string) || 10;
+    const unit = (formData.get("unit") as string) || "adet";
+    const category = formData.get("category") as string;
+    const location = formData.get("location") as string;
+
+    if (!code || !name) {
+        return { error: "Kod ve ad zorunludur" };
+    }
+
+    try {
+        await (prisma as any).semiFinished.create({
+            data: {
+                code,
+                name,
+                description: description || null,
+                quantity,
+                minStock,
+                unit,
+                category: category || null,
+                location: location || null
+            }
+        });
+
+        const userId = parseInt((session.user as any).id);
+        await createAuditLog("CREATE", "SemiFinished", code, `Yarı mamül oluşturuldu: ${name}`, userId);
+
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e: any) {
+        if (e.code === 'P2002') {
+            return { error: "Bu kod zaten kullanılıyor" };
+        }
+        console.error(e);
+        return { error: "Oluşturulurken hata oluştu" };
+    }
+}
+
+export async function updateSemiFinished(id: number, formData: FormData) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+
+    const code = formData.get("code") as string;
+    const name = formData.get("name") as string;
+    const description = formData.get("description") as string;
+    const quantity = parseInt(formData.get("quantity") as string) || 0;
+    const minStock = parseInt(formData.get("minStock") as string) || 10;
+    const unit = (formData.get("unit") as string) || "adet";
+    const category = formData.get("category") as string;
+    const location = formData.get("location") as string;
+
+    if (!code || !name) {
+        return { error: "Kod ve ad zorunludur" };
+    }
+
+    try {
+        await (prisma as any).semiFinished.update({
+            where: { id },
+            data: {
+                code,
+                name,
+                description: description || null,
+                quantity,
+                minStock,
+                unit,
+                category: category || null,
+                location: location || null
+            }
+        });
+
+        const userId = parseInt((session.user as any).id);
+        await createAuditLog("UPDATE", "SemiFinished", code, `Yarı mamül güncellendi: ${name}`, userId);
+
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e: any) {
+        if (e.code === 'P2002') {
+            return { error: "Bu kod zaten kullanılıyor" };
+        }
+        console.error(e);
+        return { error: "Güncellenirken hata oluştu" };
+    }
+}
+
+export async function deleteSemiFinished(id: number) {
+    const session = await auth();
+    if (!session || !["ADMIN"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+
+    try {
+        const item = await (prisma as any).semiFinished.findUnique({ where: { id } });
+        if (!item) return { error: "Bulunamadı" };
+
+        // İlgili logları sil
+        await (prisma as any).semiFinishedLog.deleteMany({ where: { semiFinishedId: id } });
+        await (prisma as any).semiFinished.delete({ where: { id } });
+
+        const userId = parseInt((session.user as any).id);
+        await createAuditLog("DELETE", "SemiFinished", item.code, `Yarı mamül silindi: ${item.name}`, userId);
+
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        console.error(e);
+        return { error: "Silinirken hata oluştu" };
+    }
+}
+
+export async function updateSemiFinishedStock(
+    id: number,
+    type: "IN" | "OUT",
+    quantity: number,
+    note?: string
+) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER", "WORKER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+
+    if (quantity <= 0) {
+        return { error: "Miktar 0'dan büyük olmalı" };
+    }
+
+    try {
+        const item = await (prisma as any).semiFinished.findUnique({ where: { id } });
+        if (!item) return { error: "Bulunamadı" };
+
+        if (type === "OUT" && quantity > item.quantity) {
+            return { error: `Stokta yeterli miktar yok. Mevcut: ${item.quantity}` };
+        }
+
+        const newQuantity = type === "IN" ? item.quantity + quantity : item.quantity - quantity;
+
+        await (prisma as any).$transaction([
+            (prisma as any).semiFinished.update({
+                where: { id },
+                data: { quantity: newQuantity }
+            }),
+            (prisma as any).semiFinishedLog.create({
+                data: {
+                    semiFinishedId: id,
+                    type,
+                    quantity,
+                    note: note || null
+                }
+            })
+        ]);
+
+        const userId = parseInt((session.user as any).id);
+        const actionType = type === "IN" ? "STOCK_IN" : "STOCK_OUT";
+        await createAuditLog(
+            actionType,
+            "SemiFinished",
+            item.code,
+            `${type === "IN" ? "Giriş" : "Çıkış"}: ${quantity} ${item.unit}. Yeni stok: ${newQuantity}`,
+            userId
+        );
+
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        console.error(e);
+        return { error: "İşlem sırasında hata oluştu" };
+    }
+}
+
+// --- Geçmişe Dönük Üretim Verileri ---
+
+export async function getHistoricalProductionData(weeksCount: number = 4) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz" };
+
+    try {
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        // Pazartesi başlangıcı (0 = Pazar, 1 = Pazartesi)
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+        const weeks: {
+            week: string;
+            label: string;
+            total: number;
+            dailyData: { day: string; count: number }[];
+        }[] = [];
+
+        const dayNames = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
+        for (let w = 0; w < weeksCount; w++) {
+            // Her hafta için başlangıç ve bitiş tarihi
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() + mondayOffset - (w * 7));
+            weekStart.setHours(0, 0, 0, 0);
+
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 7);
+            weekEnd.setHours(0, 0, 0, 0);
+
+            // Bu haftanın üretim loglarını çek
+            const logs = await prisma.productionLog.findMany({
+                where: {
+                    createdAt: {
+                        gte: weekStart,
+                        lt: weekEnd
+                    }
+                }
+            });
+
+            // Günlük dağılım
+            const dailyData: { day: string; count: number }[] = [];
+            for (let d = 0; d < 7; d++) {
+                const dayDate = new Date(weekStart);
+                dayDate.setDate(weekStart.getDate() + d);
+
+                const dayLogs = logs.filter(log => {
+                    const logDate = new Date(log.createdAt);
+                    return logDate.getDate() === dayDate.getDate() &&
+                        logDate.getMonth() === dayDate.getMonth() &&
+                        logDate.getFullYear() === dayDate.getFullYear();
+                });
+
+                const dayTotal = dayLogs.reduce((sum, log) => sum + log.quantity, 0);
+                dailyData.push({
+                    day: dayNames[dayDate.getDay()],
+                    count: dayTotal
+                });
+            }
+
+            // Toplam
+            const total = logs.reduce((sum, log) => sum + log.quantity, 0);
+
+            // Hafta etiketi
+            let label = "";
+            if (w === 0) {
+                label = "Bu Hafta";
+            } else if (w === 1) {
+                label = "Geçen Hafta";
+            } else {
+                label = `${w} Hafta Önce`;
+            }
+
+            // Tarih aralığı
+            const weekEndDisplay = new Date(weekEnd);
+            weekEndDisplay.setDate(weekEndDisplay.getDate() - 1);
+            const dateRange = `${weekStart.getDate()}/${weekStart.getMonth() + 1} - ${weekEndDisplay.getDate()}/${weekEndDisplay.getMonth() + 1}`;
+
+            weeks.push({
+                week: dateRange,
+                label,
+                total,
+                dailyData
+            });
+        }
+
+        return { data: weeks };
+    } catch (e) {
+        console.error("Historical data fetch error:", e);
+        return { error: "Veri çekilirken hata oluştu" };
     }
 }

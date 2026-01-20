@@ -11,14 +11,28 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { PlanningForm } from "./planning-form";
-import { Pencil } from "lucide-react";
+import { Pencil, Lock } from "lucide-react";
 
 interface EditProductDialogProps {
     product: any; // Using any for now to avoid complexity with Prisma types on client
+    userRole?: string; // Kullanıcı rolü
 }
 
-export function EditProductDialog({ product }: EditProductDialogProps) {
+export function EditProductDialog({ product, userRole }: EditProductDialogProps) {
     const [open, setOpen] = useState(false);
+
+    // Onaylanmış veya tamamlanmış ürünler için sadece admin düzenleyebilir
+    const isApprovedOrCompleted = product.status === 'APPROVED' || product.status === 'COMPLETED' || product.status === 'IN_PRODUCTION';
+    const canEdit = userRole === 'ADMIN' || !isApprovedOrCompleted;
+
+    if (!canEdit) {
+        return (
+            <Button variant="outline" size="sm" className="h-8 gap-1 opacity-50 cursor-not-allowed" disabled>
+                <Lock className="h-3 w-3" />
+                Kilitli
+            </Button>
+        );
+    }
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -32,8 +46,10 @@ export function EditProductDialog({ product }: EditProductDialogProps) {
                 <DialogHeader>
                     <DialogTitle>Mevcut Planı Düzenle</DialogTitle>
                     <DialogDescription>
-                        Reddedilen veya hatalı girilen planı buradan güncelleyebilirsiniz.
-                        Güncelleme sonrası ürün durumu tekrar değerlendirilecektir.
+                        {isApprovedOrCompleted
+                            ? "Bu ürün onaylanmış durumda. Yönetici olarak düzenleme yapabilirsiniz."
+                            : "Reddedilen veya hatalı girilen planı buradan güncelleyebilirsiniz. Güncelleme sonrası ürün durumu tekrar değerlendirilecektir."
+                        }
                     </DialogDescription>
                 </DialogHeader>
 

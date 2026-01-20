@@ -23,13 +23,17 @@ interface PlanningFormProps {
 
 export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
     const formRef = useRef<HTMLFormElement>(null);
-    const [date, setDate] = useState<Date | undefined>(product ? new Date(product.terminDate) : undefined);
+    const [date, setDate] = useState<Date | undefined>(
+        product?.terminDate ? new Date(product.terminDate) : undefined
+    );
 
     // Initial state from product if editing
     const [selectedProduct, setSelectedProduct] = useState<{ code: string, name: string, imageUrl?: string | null } | null>(
         product ? { code: product.systemCode, name: product.name, imageUrl: product.imageUrl } : null
     );
-    const [orderDate, setOrderDate] = useState<Date | undefined>(product?.orderDate ? new Date(product.orderDate) : new Date());
+    const [orderDate, setOrderDate] = useState<Date | undefined>(
+        product?.orderDate ? new Date(product.orderDate) : new Date()
+    );
 
     const [footType, setFootType] = useState(product?.footType || "");
     const [footMaterial, setFootMaterial] = useState(product?.footMaterial || "");
@@ -39,6 +43,9 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
     const [model, setModel] = useState(product?.model || "");
     const [material, setMaterial] = useState(product?.material || "");
     const [master, setMaster] = useState(product?.master || "");
+
+    // Company: Product'ta yok, Order'dan gelir. Eğer product.order varsa oradan al
+    const [company, setCompany] = useState(product?.order?.company || product?.company || "");
 
     const [masters, setMasters] = useState<{ id: number; name: string }[]>([]);
 
@@ -83,6 +90,9 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                 setBackType("");
                 setFabricType(""); // Reset fabric
                 setModel("");
+                setMaterial("");
+                setMaster("");
+                setCompany("");
 
                 setSelectedProduct(null);
             }
@@ -176,7 +186,14 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label htmlFor="company">Firma / Müşteri</Label>
-                    <Input id="company" name="company" placeholder="ABC Mobilya" maxLength={100} defaultValue={product?.company || ""} />
+                    <Input
+                        id="company"
+                        name="company"
+                        placeholder="ABC Mobilya"
+                        maxLength={100}
+                        value={company}
+                        onChange={(e) => setCompany(e.target.value)}
+                    />
                 </div>
                 <div className="space-y-2">
                     <Label>Atanan Usta</Label>

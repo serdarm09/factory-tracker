@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ApproveButton } from "@/components/approve-button";
 import { RejectButton } from "@/components/reject-button";
+import { EditProductDialog } from "@/components/edit-product-dialog";
 import { approveProduct, rejectProduct } from "@/lib/actions";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -12,9 +13,10 @@ import { translateStatus } from "@/lib/translations";
 
 interface PendingApprovalsTableProps {
     pendingProducts: any[];
+    userRole?: string;
 }
 
-export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTableProps) {
+export function PendingApprovalsTable({ pendingProducts, userRole }: PendingApprovalsTableProps) {
     const [selectedProduct, setSelectedProduct] = useState<any>(null);
     const [isOpen, setIsOpen] = useState(false);
 
@@ -67,7 +69,7 @@ export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTable
                             <TableCell className="max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
                                 {p.description || '-'}
                             </TableCell>
-                            <TableCell>{p.company || '-'}</TableCell>
+                            <TableCell>{p.order?.company || p.company || '-'}</TableCell>
                             <TableCell>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
                             <TableCell className="text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
                             <TableCell>{p.quantity}</TableCell>
@@ -116,7 +118,7 @@ export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTable
 
                             <div className="space-y-4">
                                 <Section title="Temel Bilgiler">
-                                    <Detail label="Firma / Müşteri" value={selectedProduct.company} />
+                                    <Detail label="Firma / Müşteri" value={selectedProduct.order?.company || selectedProduct.company} />
                                     <Detail label="Adet" value={selectedProduct.quantity} />
                                     <Detail label="Durum" value={translateStatus(selectedProduct.status)} />
                                     <Detail label="Barkod" value={selectedProduct.barcode || '-'} />
@@ -153,6 +155,9 @@ export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTable
                             </div>
 
                             <div className="col-span-full flex justify-end gap-2 border-t pt-4 mt-2">
+                                <div onClick={() => setIsOpen(false)}>
+                                    <EditProductDialog product={selectedProduct} userRole={userRole} />
+                                </div>
                                 <div onClick={() => setIsOpen(false)}>
                                     <RejectButton action={async (reason) => {
                                         await rejectProduct(selectedProduct.id, reason);

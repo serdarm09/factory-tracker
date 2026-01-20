@@ -18,24 +18,31 @@ import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
 export default async function PlanningPage() {
     const session = await auth();
 
-    // Fetch Orders that have products (or all?)
+    // Fetch Orders that have products (or all?).
     // We want to show Active orders (not completed/cancelled maybe? or all).
     // Let's show all for now, ordered by date.
     const orders = await prisma.order.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
-            products: true,
+            products: {
+                include: {
+                    order: true // Product içinden order'a erişebilmek için
+                }
+            },
             marketingBy: true
         }
     });
 
-    // Also fetch legacy products that might not have an Order? 
-    // If strict migration, all products should have orderId? 
+    // Also fetch legacy products that might not have an Order?
+    // If strict migration, all products should have orderId?
     // Old products have orderId = null.
     // We should display them too in a "Legacy / Unassigned" group.
     const legacyProducts = await prisma.product.findMany({
         where: { orderId: null },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        include: {
+            order: true
+        }
     });
 
     // Separating Rejected Products for Alert (Only if I want to keep that alert logic)
@@ -188,7 +195,7 @@ function ProductTable({ products, session }: { products: any[], session: any }) 
                             <TableCell>
                                 <div className="flex gap-1 items-center">
                                     {/* Edit Dialog */}
-                                    <EditProductDialog product={p} />
+                                    <EditProductDialog product={p} userRole={(session?.user as any)?.role} />
 
                                     {/* Admin Actions */}
                                     {isAdmin && p.status === 'PENDING' && (
