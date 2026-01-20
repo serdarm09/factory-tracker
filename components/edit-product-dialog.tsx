@@ -36,7 +36,23 @@ export function EditProductDialog({ product }: EditProductDialogProps) {
                         Güncelleme sonrası ürün durumu tekrar değerlendirilecektir.
                     </DialogDescription>
                 </DialogHeader>
-                <PlanningForm product={product} onSuccess={() => setOpen(false)} />
+
+                {product.status === 'REJECTED' && product.rejectionReason && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 rounded">
+                        <div className="flex">
+                            <div className="flex-1">
+                                <p className="text-sm text-red-700 font-bold">
+                                    REDDEDİLDİ
+                                </p>
+                                <p className="text-sm text-red-600 mt-1">
+                                    {product.rejectionReason}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <PlanningForm key={product.id} product={product} onSuccess={() => setOpen(false)} />
             </DialogContent>
         </Dialog>
     );

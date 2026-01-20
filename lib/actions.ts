@@ -179,29 +179,27 @@ export async function updateProduct(id: number, formData: FormData) {
     const armType = formData.get("armType") as string;
     const backType = formData.get("backType") as string;
     const fabricType = formData.get("fabricType") as string;
+    const master = formData.get("master") as string;
 
     const updates: any = {};
     let logDetails = "";
 
     const quantityStr = formData.get("quantity");
     if (quantityStr) {
-        updates.quantity = parseInt(quantityStr as string);
+        const q = parseInt(quantityStr as string);
+        if (isNaN(q)) return { error: "Geçersiz miktar (Sayı giriniz)" };
+        updates.quantity = q;
         logDetails += `Qty updated to ${updates.quantity}. `;
     }
 
-    // Produced update is handled via logProduction typically, but if manual edit:
-    // We should probably NOT allow manual edit of 'produced' via this form anymore without adjusting Inventory.
-    // But for simplicity letting it slide, but better to prevent data mismatch.
-    // If worker updates 'produced', where does the extra stock go? Unknown shelf?
-    // Let's Disable 'produced' update from this form for now to enforce 'logProduction'.
-    // Or just update 'Product' and ignore Inventory mismatch (BAD).
-    // I'll assume this specific update function is mostly for metadata now.
+    // Produced update logic removed/ignored as per comments
 
     const product = await prisma.product.findUnique({ where: { id } });
 
     // Status logic
     if (product && product.status === 'REJECTED') {
         updates.status = 'PENDING';
+        updates.rejectionReason = null;
     }
 
     try {
@@ -210,7 +208,7 @@ export async function updateProduct(id: number, formData: FormData) {
             data: {
                 name,
                 model,
-                company,
+                // company field is on Order model, cannot update directly on Product without updating parent Order
                 terminDate,
                 material,
                 description,
@@ -219,6 +217,7 @@ export async function updateProduct(id: number, formData: FormData) {
                 armType: armType || null,
                 backType: backType || null,
                 fabricType: fabricType || null,
+                master: master || null,
                 ...updates
             }
         });
@@ -228,7 +227,8 @@ export async function updateProduct(id: number, formData: FormData) {
         revalidatePath("/dashboard/planning");
         return { success: true };
     } catch (e) {
-        return { error: "Güncelleme sırasında hata oluştu" };
+        console.error("Update Product Error:", e);
+        return { error: "Güncelleme başarısız: " + (e as any).message };
     }
 }
 
@@ -490,7 +490,8 @@ export type CreateOrderData = {
         armType?: string;
         backType?: string;
         fabricType?: string;
-        masterId?: number;
+        master?: string;
+        imageUrl?: string;
     }[];
 }
 
@@ -498,6 +499,12 @@ export async function createOrder(data: CreateOrderData) {
     const session = await auth();
     if (!session) return { error: "Yetkisiz işlem" };
     const userId = parseInt((session.user as any).id);
+
+    // Verify user exists to prevent FK error if user was deleted
+    const userExists = await prisma.user.findUnique({ where: { id: userId } });
+    if (!userExists) {
+        return { error: "Kullanıcı oturumu geçersiz. Lütfen tekrar giriş yapın." };
+    }
 
     if (!data.company || !data.name || data.items.length === 0) {
         return { error: "Eksik bilgi" };
@@ -529,6 +536,19 @@ export async function createOrder(data: CreateOrderData) {
                 tDate = typeof item.terminDate === 'string' ? new Date(item.terminDate) : item.terminDate;
             }
 
+            // Fetch image from Catalog to ensure consistency
+            let validImageUrl = item.imageUrl;
+            try {
+                const catalogItem = await prisma.productCatalog.findUnique({
+                    where: { code: item.code }
+                });
+                if (catalogItem?.imageUrl) {
+                    validImageUrl = catalogItem.imageUrl;
+                }
+            } catch (e) {
+                // Ignore catalog fetch error, fallback to item.imageUrl
+            }
+
             await prisma.product.create({
                 data: {
                     orderId: order.id,
@@ -544,9 +564,9 @@ export async function createOrder(data: CreateOrderData) {
                     armType: item.armType,
                     backType: item.backType,
                     fabricType: item.fabricType,
-                    masterId: item.masterId,
+                    master: item.master,
                     systemCode: systemCode,
-                    imageUrl: `/${item.code}.png`,
+                    imageUrl: validImageUrl,
                     status: 'PENDING',
                     createdById: userId,
                     barcode: null
@@ -575,11 +595,7 @@ export async function getAttributes(category: string) {
 }
 
 export async function getMasters() {
-    // Assuming WORKER role = Usta. Filtering by role.
-    return await prisma.user.findMany({
-        where: { role: 'WORKER' },
-        select: { id: true, username: true } // username is Name
-    });
+    return await getAttributes('MASTER');
 }
 
 export async function ensureAttributes() {
@@ -588,32 +604,32 @@ export async function ensureAttributes() {
     if (count === 0) {
         const defaults = [
             // Foot Model (Ayak Modeli)
-            { category: 'Ayak', name: 'Lukens' },
-            { category: 'Ayak', name: 'Piramit' },
-            { category: 'Ayak', name: 'Koni' },
+            { category: 'FOOT_TYPE', name: 'Lukens' },
+            { category: 'FOOT_TYPE', name: 'Piramit' },
+            { category: 'FOOT_TYPE', name: 'Koni' },
 
             // Foot Material (Ayak Materyali)
-            { category: 'Ayak Materyali', name: 'Ahşap - Ceviz' },
-            { category: 'Ayak Materyali', name: 'Ahşap - Meşe' },
-            { category: 'Ayak Materyali', name: 'Metal - Krom' },
-            { category: 'Ayak Materyali', name: 'Metal - Siyah' },
-            { category: 'Ayak Materyali', name: 'Plastik' },
+            { category: 'FOOT_MATERIAL', name: 'Ahşap - Ceviz' },
+            { category: 'FOOT_MATERIAL', name: 'Ahşap - Meşe' },
+            { category: 'FOOT_MATERIAL', name: 'Metal - Krom' },
+            { category: 'FOOT_MATERIAL', name: 'Metal - Siyah' },
+            { category: 'FOOT_MATERIAL', name: 'Plastik' },
 
             // Arm
-            { category: 'Kol', name: 'P-Kol' },
-            { category: 'Kol', name: 'T-Kol' },
-            { category: 'Kol', name: 'Ahşap Kol' },
+            { category: 'ARM_TYPE', name: 'P-Kol' },
+            { category: 'ARM_TYPE', name: 'T-Kol' },
+            { category: 'ARM_TYPE', name: 'Ahşap Kol' },
 
             // Back
-            { category: 'Sırt', name: 'Sabit' },
-            { category: 'Sırt', name: 'Mekanizmalı' },
-            { category: 'Sırt', name: 'Kapitone' },
+            { category: 'BACK_TYPE', name: 'Sabit' },
+            { category: 'BACK_TYPE', name: 'Mekanizmalı' },
+            { category: 'BACK_TYPE', name: 'Kapitone' },
 
             // Fabric
-            { category: 'Kumaş', name: 'Kadife - Gri' },
-            { category: 'Kumaş', name: 'Kadife - Bej' },
-            { category: 'Kumaş', name: 'Keten - Antrasit' },
-            { category: 'Kumaş', name: 'Deri - Siyah' },
+            { category: 'FABRIC_TYPE', name: 'Kadife - Gri' },
+            { category: 'FABRIC_TYPE', name: 'Kadife - Bej' },
+            { category: 'FABRIC_TYPE', name: 'Keten - Antrasit' },
+            { category: 'FABRIC_TYPE', name: 'Deri - Siyah' },
         ];
         for (const d of defaults) {
             await prisma.productFeature.create({ data: d });
@@ -636,15 +652,15 @@ export async function getReadyToShipProducts() {
     });
 
     // Filter available
-    return products.map(p => {
-        const shipped = p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0);
+    return products.map((p: any) => {
+        const shipped = p.shipmentItems.reduce((sum: any, item: any) => sum + item.quantity, 0);
         const available = p.produced - shipped;
         return {
             ...p,
             shipped,
             available
         };
-    }).filter(p => p.available > 0);
+    }).filter((p: any) => p.available > 0);
 }
 
 export async function createShipment(data: {
@@ -657,6 +673,9 @@ export async function createShipment(data: {
     if (!data.company || !data.estimatedDate || data.items.length === 0) {
         return { error: "Eksik bilgi" };
     }
+
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
 
     try {
         const shipment = await prisma.shipment.create({
@@ -675,6 +694,14 @@ export async function createShipment(data: {
             }
         });
 
+        await createAuditLog(
+            "CREATE_SHIPMENT",
+            "Shipment",
+            shipment.id.toString(),
+            `Shipment created for ${data.company}. Driver: ${data.driverName}`,
+            parseInt((session.user as any).id)
+        );
+
         revalidatePath("/dashboard/shipment");
         return { success: true, shipmentId: shipment.id };
     } catch (e) {
@@ -687,3 +714,97 @@ export async function createShipment(data: {
 
 
 
+
+export async function getProductTimeline(productId: number) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz" };
+
+    const product = await prisma.product.findUnique({
+        where: { id: productId },
+        include: {
+            // @ts-ignore
+            creator: true,
+            // @ts-ignore
+            order: true
+        }
+    }) as any;
+
+    if (!product) return { error: "Ürün bulunamadı" };
+
+    // 1. Audit Logs (Status Changes, Updates)
+    const auditLogs = await prisma.auditLog.findMany({
+        where: {
+            entity: 'Product',
+            entityId: product.systemCode
+        },
+        include: { user: true }
+    });
+
+    // 2. Production Logs (Manufacturing Steps)
+    // @ts-ignore
+    const productionLogs = await prisma.productionLog.findMany({
+        where: { productId },
+        include: { user: true }
+    });
+
+    // 3. Shipment Logs
+    // @ts-ignore
+    const shipmentItems = await (prisma as any).shipmentItem.findMany({
+        where: { productId },
+        include: { shipment: true }
+    });
+
+    // Combine and Sort
+    const timeline = [
+        // Creation Event
+        {
+            id: `create-${product.id}`,
+            date: product.createdAt,
+            type: 'CREATED',
+            title: 'Sipariş Oluşturuldu',
+            description: `Sipariş: ${product.order?.name || '-'} | Kod: ${product.systemCode}`,
+            user: product.creator?.username || 'Sistem'
+        },
+        ...auditLogs.map((l: any) => ({
+            id: `audit-${l.id}`,
+            date: l.createdAt,
+            type: l.action, // UPDATE, APPROVE, REJECT
+            title: translateAction(l.action),
+            description: l.details,
+            user: l.user?.username
+        })),
+        ...productionLogs.map((l: any) => ({
+            id: `prod-${l.id}`,
+            date: l.createdAt,
+            type: 'PRODUCTION',
+            title: 'Üretim Girişi',
+            description: `${l.quantity} adet üretildi. ${l.shelf ? `Raf: ${l.shelf}` : ''}`,
+            user: l.user?.username
+        })),
+        ...shipmentItems.map((s: any) => ({
+            id: `ship-${s.id}`,
+            date: s.shipment.createdAt,
+            type: 'SHIPMENT',
+            title: 'Sevkiyat Planlandı',
+            description: `Sevkiyat ID: ${s.shipment.id} | Plaka: ${s.shipment.vehiclePlate || '-'}`,
+            user: '-'
+        }))
+    ];
+
+    // Sort descending (newest first)
+    timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return { timeline };
+}
+
+function translateAction(action: string) {
+    switch (action) {
+        case 'CREATE_ORDER': return 'Sipariş Girildi';
+        case 'UPDATE': return 'Güncelleme Yapıldı';
+        case 'APPROVE': return 'Onaylandı (Üretime Hazır)';
+        case 'REJECT': return 'Reddedildi';
+        case 'CANCEL': return 'İptal Edildi';
+        case 'CREATE_FEATURE': return 'Özellik Eklendi';
+        default: return action;
+    }
+}

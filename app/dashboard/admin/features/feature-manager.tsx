@@ -16,11 +16,13 @@ interface FeatureManagerProps {
 }
 
 const CATEGORIES: { key: FeatureCategory; label: string }[] = [
+    { key: "MASTER", label: "Usta (Personel)" },
     { key: "FOOT_TYPE", label: "Ayak Modeli" },
     { key: "FOOT_MATERIAL", label: "Ayak Özelliği (Materyal)" },
     { key: "ARM_TYPE", label: "Kol Modeli" },
     { key: "BACK_TYPE", label: "Sırt Modeli" },
     { key: "FABRIC_TYPE", label: "Kumaş Türü" },
+    { key: "MATERIAL", label: "Malzeme Detayı" },
     { key: "MODEL", label: "Model" },
 ];
 
@@ -68,7 +70,7 @@ export function FeatureManager({ userRole }: FeatureManagerProps) {
         if (activeTab === "CATALOG") return;
         if (!confirm("Bu özelliği silmek istediğinize emin misiniz?")) return;
 
-        const res = await deleteFeature(id);
+        const res = await deleteFeature(activeTab, id); // Pass Category
         if (res.error) {
             toast.error(res.error);
         } else {

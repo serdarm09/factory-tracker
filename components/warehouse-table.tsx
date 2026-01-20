@@ -9,13 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { updateProduct } from "@/lib/actions";
-import { Pencil } from "lucide-react";
+import { updateProduct, getMasters } from "@/lib/actions";
+import { Pencil, Plus } from "lucide-react";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { ProductImage } from "@/components/product-image";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useEffect } from "react";
+import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
 
 
 type Product = {
@@ -41,11 +44,22 @@ type Product = {
     armType?: string;
     backType?: string;
     fabricType?: string;
+    master?: string | null;
     imageUrl?: string | null;
 };
 
 function EditProductDialog({ product, role }: { product: Product, role: string }) {
     const [open, setOpen] = useState(false);
+    const [masters, setMasters] = useState<{ id: number; name: string }[]>([]);
+    const [selectedMaster, setSelectedMaster] = useState(product.master || '');
+
+    useEffect(() => {
+        if (open) {
+            getMasters().then(data => {
+                setMasters(data);
+            });
+        }
+    }, [open]);
 
     // Permission Check
     const isWorker = role === 'WORKER';
@@ -100,17 +114,24 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                             <Label>Termin Tarihi</Label>
                             <Input name="terminDate" type="date" defaultValue={new Date(product.terminDate).toISOString().split('T')[0]} required readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} />
                         </div>
-                        {/* Shelf is managed via Production/Transfer 
-                        <div className="space-y-2">
-                            <Label>Raf Kodu</Label>
-                            <div className="p-2 bg-slate-100 rounded text-sm text-slate-600">
-                                {product.inventory?.map(i => i.shelf).join(", ") || "Rafsız"}
-                            </div>
-                        </div>
-                        */}
                         <div className="space-y-2">
                             <Label>Malzeme</Label>
                             <Input name="material" defaultValue={product.material || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={100} />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Atanan Usta</Label>
+                            <input type="hidden" name="master" value={selectedMaster} />
+                            <Select value={selectedMaster} onValueChange={setSelectedMaster} disabled={isWorker}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Seçiniz..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {masters.map(m => (
+                                        <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
 
                         {/* Admin or Planner can edit Planned Quantity */}
@@ -341,12 +362,20 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 </TableCell>
                                 <TableCell className="font-mono text-xs">{p.barcode || "-"}</TableCell>
                                 <TableCell>
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${p.produced >= p.quantity
-                                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                                        : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                                        }`}>
-                                        {p.produced >= p.quantity ? 'TAMAMLANDI' : 'EKSİK / KISMİ'}
-                                    </span>
+                                    <div onClick={e => e.stopPropagation()}>
+                                        <ProductTimelineDialog
+                                            productId={p.id}
+                                            productName={p.name}
+                                            trigger={
+                                                <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${p.produced >= p.quantity
+                                                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                                    : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                                                    }`}>
+                                                    {p.produced >= p.quantity ? 'TAMAMLANDI' : 'EKSİK / KISMİ'}
+                                                </span>
+                                            }
+                                        />
+                                    </div>
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className={`font-bold ${p.produced >= p.quantity ? 'text-blue-600' : 'text-yellow-600'}`}>
@@ -388,7 +417,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             <div className="col-span-full flex justify-center">
                                 <div className="relative h-64 w-full md:w-96 mb-4 rounded-lg overflow-hidden border bg-slate-100 flex items-center justify-center">
                                     <ProductImage
-                                        src={`/${viewProduct.systemCode}.png`}
+                                        src={viewProduct.imageUrl || `/${viewProduct.systemCode}.png`}
                                         alt={viewProduct.name}
                                         className="object-contain w-full h-full"
                                     />
@@ -424,9 +453,10 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <Detail label="Malzeme Detayı" value={viewProduct.material} />
                                 </Section>
 
-                                {viewProduct.creator && (
-                                    <Section title="Planlayan">
-                                        <Detail label="Kullanıcı" value={viewProduct.creator.username} />
+                                {(viewProduct.creator || viewProduct.master) && (
+                                    <Section title="Personel">
+                                        {viewProduct.creator && <Detail label="Planlayan" value={viewProduct.creator.username} />}
+                                        <Detail label="Atanan Usta" value={viewProduct.master} />
                                     </Section>
                                 )}
                             </div>

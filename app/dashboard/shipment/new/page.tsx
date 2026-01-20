@@ -10,7 +10,6 @@ import { createShipment, getReadyToShipProducts } from "@/lib/actions";
 import { Loader2, Plus, Check, Search, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 
 export default function NewShipmentPage() {
     const router = useRouter();
@@ -163,9 +162,11 @@ export default function NewShipmentPage() {
                                     return (
                                         <TableRow key={p.id} className={isSelected ? "bg-blue-50" : ""}>
                                             <TableCell>
-                                                <Checkbox
+                                                <input
+                                                    type="checkbox"
                                                     checked={isSelected}
-                                                    onCheckedChange={(c) => handleToggleProduct(p, c as boolean)}
+                                                    onChange={(e) => handleToggleProduct(p, e.target.checked)}
+                                                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                                 />
                                             </TableCell>
                                             <TableCell>

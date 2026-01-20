@@ -10,7 +10,10 @@ import { EditProductDialog } from "@/components/edit-product-dialog";
 import { CancelProductButton } from "@/components/cancel-button"; // Assuming this still works for Product
 import { AutoRefresh } from "@/components/auto-refresh";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Info } from "lucide-react";
+import { RejectionDialog } from "@/components/rejection-dialog";
+import { ApprovalButton } from "@/components/approval-button";
+import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
 
 export default async function PlanningPage() {
     const session = await auth();
@@ -158,45 +161,43 @@ function ProductTable({ products, session }: { products: any[], session: any }) 
                             {p.terminDate ? new Date(p.terminDate).toLocaleDateString('tr-TR') : '-'}
                         </TableCell>
                         <TableCell>
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${p.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
-                                p.status === 'APPROVED' ? 'bg-blue-100 text-blue-600' :
-                                    p.status === 'REJECTED' ? 'bg-red-100 text-red-600' :
-                                        p.status === 'COMPLETED' ? 'bg-green-100 text-green-600' :
-                                            'bg-gray-100 text-gray-600'
-                                }`}>
-                                {translateStatus(p.status).toUpperCase()}
-                            </span>
+                            <ProductTimelineDialog
+                                productId={p.id}
+                                productName={p.name}
+                                trigger={
+                                    <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${p.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
+                                        p.status === 'APPROVED' ? 'bg-blue-100 text-blue-600' :
+                                            p.status === 'REJECTED' ? 'bg-red-100 text-red-600' :
+                                                p.status === 'COMPLETED' ? 'bg-green-100 text-green-600' :
+                                                    'bg-gray-100 text-gray-600'
+                                        }`}>
+                                        {translateStatus(p.status).toUpperCase()}
+                                    </span>
+                                }
+                            />
+                            {p.status === 'REJECTED' && p.rejectionReason && (
+                                <div className="group relative inline-block ml-2 align-middle">
+                                    <Info className="h-4 w-4 text-red-400 cursor-help" />
+                                    <div className="hidden group-hover:block absolute z-10 w-64 p-2 mt-1 -ml-2 text-xs text-white bg-slate-800 rounded shadow-lg">
+                                        Red Nedeni: {p.rejectionReason}
+                                    </div>
+                                </div>
+                            )}
                         </TableCell>
                         {!isViewer && (
                             <TableCell>
-                                {(p.status === 'PENDING' || p.status === 'REJECTED' || p.status === 'APPROVED') && (
-                                    <div className="flex gap-1">
-                                        {/* Admin can Edit/Reject */}
-                                        {/* Assuming EditProductDialog handles approval via updateProduct status change or separate button? */}
-                                        {/* Actually EditProductDialog likely just edits details. Approval is usually a button? */}
-                                        {/* Existing CancelButton deletes it. */}
-                                        {/* We need an Approve Button if Pending. */}
+                                <div className="flex gap-1 items-center">
+                                    {/* Edit Dialog */}
+                                    <EditProductDialog product={p} />
 
-                                        <EditProductDialog product={p} />
-
-                                        {/* If Pending, Show Approve Button (Admin) */}
-                                        {isAdmin && p.status === 'PENDING' && (
-                                            <form action={async () => {
-                                                'use server';
-                                                // We need to import approveProduct here or use client component
-                                                // I can't write server action inline if not passed properly.
-                                                // I should use a component for Approve Button.
-                                            }}>
-                                                {/* Placeholder for Approve Button */}
-                                            </form>
-                                        )}
-
-                                        {/* For now, just keeping Edit/Cancel. approveProduct is called from EditDialog?? No. */}
-                                        {/* I'll use a new ApproveButton component or reuse existing patterns. */}
-                                        {/* Wait, previously Approve was done via... Actions. */}
-                                        {/* I'll create an ApproveButton component in next step if needed. */}
-                                    </div>
-                                )}
+                                    {/* Admin Actions */}
+                                    {isAdmin && p.status === 'PENDING' && (
+                                        <>
+                                            <ApprovalButton productId={p.id} />
+                                            <RejectionDialog productId={p.id} productName={p.name} />
+                                        </>
+                                    )}
+                                </div>
                             </TableCell>
                         )}
                     </TableRow>

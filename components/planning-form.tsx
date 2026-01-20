@@ -1,11 +1,11 @@
 'use client';
 
-import { createProduct, updateProduct } from "@/lib/actions";
+import { createProduct, updateProduct, getMasters } from "@/lib/actions";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { CalendarIcon } from "lucide-react";
@@ -14,6 +14,7 @@ import { tr } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ProductCombobox } from "./product-combobox";
 import { FeatureCombobox } from "./feature-combobox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PlanningFormProps {
     product?: any; // Start with any to avoid type issues, refine later
@@ -36,6 +37,14 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
     const [backType, setBackType] = useState(product?.backType || "");
     const [fabricType, setFabricType] = useState(product?.fabricType || "");
     const [model, setModel] = useState(product?.model || "");
+    const [material, setMaterial] = useState(product?.material || "");
+    const [master, setMaster] = useState(product?.master || "");
+
+    const [masters, setMasters] = useState<{ id: number; name: string }[]>([]);
+
+    useEffect(() => {
+        getMasters().then(setMasters);
+    }, []);
 
     async function clientAction(formData: FormData) {
         if (!date) {
@@ -164,9 +173,25 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                     <input type="hidden" name="model" value={model} />
                 </div>
             </div>
-            <div className="space-y-2">
-                <Label htmlFor="company">Firma / Müşteri</Label>
-                <Input id="company" name="company" placeholder="ABC Mobilya" maxLength={100} defaultValue={product?.company || ""} />
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="company">Firma / Müşteri</Label>
+                    <Input id="company" name="company" placeholder="ABC Mobilya" maxLength={100} defaultValue={product?.company || ""} />
+                </div>
+                <div className="space-y-2">
+                    <Label>Atanan Usta</Label>
+                    <input type="hidden" name="master" value={master} />
+                    <Select value={master} onValueChange={setMaster}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Usta Seçiniz..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {masters.map(m => (
+                                <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -302,17 +327,28 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                     <div className="space-y-1">
                         <FeatureCombobox
                             category="FABRIC_TYPE"
-                            placeholder="Kumaş veya Deri Seçin (veya yazıp ekleyin)"
+                            placeholder="Kumaş veya Deri Seçin"
                             onSelect={setFabricType}
                             initialValue={fabricType}
+                        />
+                    </div>
+                    <input type="hidden" name="fabricType" value={fabricType} />
+                </div>
+
+                <div className="space-y-2">
+                    <Label>Materyal / Kumaş Detay</Label>
+                    <div className="space-y-1">
+                        <FeatureCombobox
+                            category="MATERIAL"
+                            placeholder="Materyal Seçin (veya yazıp ekleyin)"
+                            onSelect={setMaterial}
+                            initialValue={material}
                         />
                         <p className="text-[10px] text-muted-foreground">
                             * Listede yoksa, ismini yazıp "Ekle" butonuna basarak yeni oluşturabilirsiniz.
                         </p>
                     </div>
-                    {/* We send this as 'fabricType' which matches the DB field now used for all material info */}
-                    <input type="hidden" name="fabricType" value={fabricType} />
-                    {/* Note: 'material' field is kept in DB but we are deprecating its usage in the form for better structure */}
+                    <input type="hidden" name="material" value={material} />
                 </div>
             </div>
 

@@ -24,7 +24,7 @@ export default function NewOrderPage() {
     // Form Data
     const [company, setCompany] = useState("");
     const [orderName, setOrderName] = useState("");
-    const [selectedItems, setSelectedItems] = useState<CreateOrderData['items'] & { imageUrl?: string }[]>([]);
+    const [selectedItems, setSelectedItems] = useState<(CreateOrderData['items'][number] & { imageUrl?: string })[]>([]);
 
     // Step 3 State: Current Item Index being edited
     const [currentItemIndex, setCurrentItemIndex] = useState(0);
@@ -38,11 +38,11 @@ export default function NewOrderPage() {
         // Init data
         ensureAttributes().then(() => {
             Promise.all([
-                getAttributes('Ayak'),
-                getAttributes('Ayak Materyali'),
-                getAttributes('Kol'),
-                getAttributes('Sırt'),
-                getAttributes('Kumaş'),
+                getAttributes('FOOT_TYPE'),
+                getAttributes('FOOT_MATERIAL'),
+                getAttributes('ARM_TYPE'),
+                getAttributes('BACK_TYPE'),
+                getAttributes('FABRIC_TYPE'),
                 getMasters()
             ]).then(([feet, feetMat, arms, backs, fabrics, masterList]) => {
                 setAttributes([
@@ -52,6 +52,17 @@ export default function NewOrderPage() {
             });
         });
     }, []);
+
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (selectedItems.length > 0 || company || orderName) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [selectedItems, company, orderName]);
 
     const getOptions = (category: string) => attributes.filter(a => a.category === category);
 
@@ -275,13 +286,13 @@ export default function NewOrderPage() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Usta Ata</Label>
-                                <Select onValueChange={v => updateCurrentItem('masterId', parseInt(v))} value={currentItem.masterId?.toString()}>
+                                <Select onValueChange={v => updateCurrentItem('master', v)} value={currentItem.master || ""}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Seçiniz..." />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {masters.map(m => (
-                                            <SelectItem key={m.id} value={m.id.toString()}>{m.username}</SelectItem>
+                                            <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -295,7 +306,7 @@ export default function NewOrderPage() {
                                 <Select onValueChange={v => updateCurrentItem('footType', v)} value={currentItem.footType}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>
-                                        {getOptions('Ayak').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
+                                        {getOptions('FOOT_TYPE').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -305,7 +316,7 @@ export default function NewOrderPage() {
                                 <Select onValueChange={v => updateCurrentItem('footMaterial', v)} value={currentItem.footMaterial}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>
-                                        {getOptions('Ayak Materyali').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
+                                        {getOptions('FOOT_MATERIAL').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -315,7 +326,7 @@ export default function NewOrderPage() {
                                 <Select onValueChange={v => updateCurrentItem('armType', v)} value={currentItem.armType}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>
-                                        {getOptions('Kol').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
+                                        {getOptions('ARM_TYPE').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -325,7 +336,7 @@ export default function NewOrderPage() {
                                 <Select onValueChange={v => updateCurrentItem('backType', v)} value={currentItem.backType}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>
-                                        {getOptions('Sırt').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
+                                        {getOptions('BACK_TYPE').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -335,7 +346,7 @@ export default function NewOrderPage() {
                                 <Select onValueChange={v => updateCurrentItem('fabricType', v)} value={currentItem.fabricType}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>
-                                        {getOptions('Kumaş').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
+                                        {getOptions('FABRIC_TYPE').map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>

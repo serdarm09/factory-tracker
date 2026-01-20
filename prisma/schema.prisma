@@ -18,7 +18,7 @@ model User {
   logs      ProductionLog[]
   auditLogs AuditLog[]
   supportTickets SupportTicket[]
-  assignedProducts Product[] @relation("ProductMaster")
+
 }
 
 // Order Grouping (Sipariş)
@@ -65,8 +65,7 @@ model Product {
   backType     String?
   fabricType   String?
   
-  masterId    Int?
-  master      User?    @relation("ProductMaster", fields: [masterId], references: [id])
+  master      String? // Usta Adı
 
   status      String   @default("PENDING") 
   createdById Int?
@@ -189,4 +188,20 @@ model SupportTicket {
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Yarı Mamül (Semi-Finished Product)
+model SemiFinished {
+  id          Int      @id @default(autoincrement())
+  name        String
+  code        String   @unique
+  description String?
+  quantity    Int      @default(0)  // Mevcut stok
+  minStock    Int      @default(10) // Minimum stok seviyesi
+  unit        String   @default("adet")
+  category    String?  // Kategori (iskelet, sünger, kumaş vb.)
+  location    String?  // Depo lokasyonu
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  logs        SemiFinishedLog[]
 }

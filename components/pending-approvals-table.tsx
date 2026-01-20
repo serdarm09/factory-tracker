@@ -139,8 +139,9 @@ export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTable
                                     <Detail label="Malzeme Detayı" value={selectedProduct.material} />
                                 </Section>
 
-                                <Section title="Planlayan">
-                                    <Detail label="Kullanıcı" value={selectedProduct.creator?.username} />
+                                <Section title="Personel">
+                                    <Detail label="Planlayan" value={selectedProduct.creator?.username} />
+                                    <Detail label="Atanan Usta" value={selectedProduct.master} />
                                 </Section>
                             </div>
 
@@ -153,8 +154,8 @@ export function PendingApprovalsTable({ pendingProducts }: PendingApprovalsTable
 
                             <div className="col-span-full flex justify-end gap-2 border-t pt-4 mt-2">
                                 <div onClick={() => setIsOpen(false)}>
-                                    <RejectButton action={async () => {
-                                        await rejectProduct(selectedProduct.id);
+                                    <RejectButton action={async (reason) => {
+                                        await rejectProduct(selectedProduct.id, reason);
                                         setIsOpen(false);
                                     }} />
                                 </div>

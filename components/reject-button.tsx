@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { XCircle, Loader2 } from "lucide-react";
 
 type RejectButtonProps = {
-    action: () => Promise<any>;
+    action: (reason: string) => Promise<any>;
     disabled?: boolean;
 };
 
@@ -14,10 +14,11 @@ export function RejectButton({ action, disabled }: RejectButtonProps) {
     const [isPending, startTransition] = useTransition();
 
     const handleClick = () => {
-        if (!confirm("Bu ürünü reddetmek (silmek) istediğinize emin misiniz?")) return;
+        const reason = prompt("Red nedeni giriniz:", "Uygunsuz ürün");
+        if (!reason) return; // Cancelled
 
         startTransition(async () => {
-            const res = await action();
+            const res = await action(reason);
             if (res?.error) {
                 toast.error(res.error);
             } else {

@@ -15,7 +15,9 @@ export default async function ApprovalsPage() {
     const pendingProducts = await prisma.product.findMany({
         where: { status: 'PENDING' },
         orderBy: { createdAt: 'desc' },
-        include: { creator: true }
+        include: {
+            creator: true
+        }
     });
 
     const approvedProducts = await prisma.product.findMany({
