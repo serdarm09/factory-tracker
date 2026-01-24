@@ -28,6 +28,9 @@
 /*.py
 /*.csv
 /*.db
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/migrations/
 
 # testing
 /coverage
