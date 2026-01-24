@@ -31,7 +31,7 @@
 /prisma/*.db
 /prisma/*.db-journal
 /prisma/migrations/
-
+/.claude/
 # testing
 /coverage
 /public/uploads

@@ -597,6 +597,65 @@ export async function createOrder(data: CreateOrderData) {
     }
 }
 
+export async function getOrderForClone(orderId: number) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
+
+    try {
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: {
+                products: {
+                    select: {
+                        name: true,
+                        model: true,
+                        quantity: true,
+                        material: true,
+                        description: true,
+                        footType: true,
+                        footMaterial: true,
+                        armType: true,
+                        backType: true,
+                        fabricType: true,
+                        master: true,
+                        imageUrl: true,
+                    }
+                }
+            }
+        });
+
+        if (!order) {
+            return { error: "Sipariş bulunamadı" };
+        }
+
+        // Transform to the format expected by new-order page
+        const cloneData = {
+            company: order.company,
+            orderName: order.orderName || order.name || "",
+            items: order.products.map(p => ({
+                code: p.model,
+                name: p.name,
+                quantity: p.quantity,
+                material: p.material || "",
+                description: p.description || "",
+                terminDate: null, // User should set new termin dates
+                footType: p.footType || "",
+                footMaterial: p.footMaterial || "",
+                armType: p.armType || "",
+                backType: p.backType || "",
+                fabricType: p.fabricType || "",
+                master: p.master || "",
+                imageUrl: p.imageUrl || "",
+            }))
+        };
+
+        return { success: true, data: cloneData };
+    } catch (e) {
+        console.error("Clone order error:", e);
+        return { error: "Sipariş bilgileri alınamadı" };
+    }
+}
+
 // --- Helper Actions ---
 
 export async function getAttributes(category: string) {
@@ -1092,5 +1151,132 @@ export async function getHistoricalProductionData(weeksCount: number = 4) {
     } catch (e) {
         console.error("Historical data fetch error:", e);
         return { error: "Veri çekilirken hata oluştu" };
+    }
+}
+
+export async function deleteProduct(id: number) {
+    const session = await auth();
+    if (!session || !session.user || !['ADMIN', 'PLANNER'].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem: Sadece Admin ve Planlama yetkilisi silebilir." };
+    }
+    const userId = parseInt((session.user as any).id);
+
+    try {
+        const product = await prisma.product.findUnique({ where: { id } });
+        if (!product) return { error: "Ürün bulunamadı" };
+
+        await prisma.product.delete({ where: { id } });
+
+        await createAuditLog(
+            "DELETE",
+            "Product",
+            product.systemCode,
+            `Product deleted by ${session.user.name}. Name: ${product.name}, Status: ${product.status}`,
+            userId
+        );
+
+        revalidatePath("/dashboard/planning");
+        revalidatePath("/dashboard/warehouse");
+        return { success: true };
+    } catch (e) {
+        console.error("Delete Product Error:", e);
+        return { error: "Silme işlemi başarısız: " + (e as any).message };
+    }
+}
+
+// Bulk Actions
+export async function bulkApprove(productIds: number[]) {
+    const session = await auth();
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") {
+        return { error: "Yetkisiz işlem" };
+    }
+    const userId = parseInt((session.user as any).id);
+
+    try {
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds }, status: "PENDING" }
+        });
+
+        for (const product of products) {
+            await prisma.product.update({
+                where: { id: product.id },
+                data: {
+                    status: "APPROVED",
+                    barcode: product.systemCode,
+                    rejectionReason: null
+                }
+            });
+            await createAuditLog("BULK_APPROVE", "Product", product.systemCode, `Product approved in bulk operation`, userId);
+        }
+
+        revalidatePath("/dashboard/admin/approvals");
+        revalidatePath("/dashboard/planning");
+        return { success: true, count: products.length };
+    } catch (e) {
+        console.error("Bulk Approve Error:", e);
+        return { error: "Toplu onaylama başarısız" };
+    }
+}
+
+export async function bulkReject(productIds: number[], reason: string) {
+    const session = await auth();
+    if (!session || !session.user || (session.user as any).role !== "ADMIN") {
+        return { error: "Yetkisiz işlem" };
+    }
+    const userId = parseInt((session.user as any).id);
+
+    if (!reason || !reason.trim()) {
+        return { error: "Ret sebebi gereklidir" };
+    }
+
+    try {
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds }, status: "PENDING" }
+        });
+
+        for (const product of products) {
+            await prisma.product.update({
+                where: { id: product.id },
+                data: {
+                    status: "REJECTED",
+                    rejectionReason: reason
+                }
+            });
+            await createAuditLog("BULK_REJECT", "Product", product.systemCode, `Product rejected in bulk. Reason: ${reason}`, userId);
+        }
+
+        revalidatePath("/dashboard/admin/approvals");
+        revalidatePath("/dashboard/planning");
+        return { success: true, count: products.length };
+    } catch (e) {
+        console.error("Bulk Reject Error:", e);
+        return { error: "Toplu reddetme başarısız" };
+    }
+}
+
+export async function bulkDelete(productIds: number[]) {
+    const session = await auth();
+    if (!session || !session.user || !['ADMIN', 'PLANNER'].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+    const userId = parseInt((session.user as any).id);
+
+    try {
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds } }
+        });
+
+        for (const product of products) {
+            await prisma.product.delete({ where: { id: product.id } });
+            await createAuditLog("BULK_DELETE", "Product", product.systemCode, `Product deleted in bulk operation`, userId);
+        }
+
+        revalidatePath("/dashboard/planning");
+        revalidatePath("/dashboard/warehouse");
+        revalidatePath("/dashboard/admin/approvals");
+        return { success: true, count: products.length };
+    } catch (e) {
+        console.error("Bulk Delete Error:", e);
+        return { error: "Toplu silme başarısız" };
     }
 }

@@ -24,7 +24,7 @@ export default async function SupportPage() {
     return (
         <div className="space-y-6">
             <h2 className="text-3xl font-bold tracking-tight">Destek Talepleri</h2>
-            <AutoRefresh interval={30000} />
+            <AutoRefresh intervalMs={30000} />
 
             <div className="grid gap-4">
                 {tickets.length === 0 ? (

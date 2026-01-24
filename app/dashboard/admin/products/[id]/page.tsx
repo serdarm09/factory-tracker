@@ -27,7 +27,8 @@ export default async function ProductDetailPage({
     const product = await prisma.product.findUnique({
         where: { id: productId },
         include: {
-            creator: true
+            creator: true,
+            order: true
         }
     });
 
@@ -102,7 +103,7 @@ export default async function ProductDetailPage({
                             <span className="text-muted-foreground">Firma:</span>
                             <span className="font-medium flex items-center gap-2">
                                 <Building className="h-3 w-3" />
-                                {product.company || "-"}
+                                {product.order?.company || "-"}
                             </span>
 
                             <span className="text-muted-foreground">Miktar:</span>
@@ -151,7 +152,7 @@ export default async function ProductDetailPage({
                             <span className="font-medium">{new Date(product.createdAt).toLocaleDateString("tr-TR")}</span>
 
                             <span className="text-muted-foreground">Termin Tarihi:</span>
-                            <span className="font-medium text-red-600">{new Date(product.terminDate).toLocaleDateString("tr-TR")}</span>
+                            <span className="font-medium text-red-600">{product.terminDate ? new Date(product.terminDate).toLocaleDateString("tr-TR") : "-"}</span>
                         </div>
                     </CardContent>
                 </Card>

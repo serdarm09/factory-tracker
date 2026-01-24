@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes, Settings2, LifeBuoy, Layers } from "lucide-react";
+import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes, Settings2, LifeBuoy, Layers, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth"; // We need a server action for signOut to work in server components usually, or client. using client for signout button usually best.
 // Actually, calling signOut from server component is not direct. We need a client component for the signout button.
@@ -10,6 +10,7 @@ import { signOut } from "@/lib/auth"; // We need a server action for signOut to 
 // We will make Sidebar a Server Component to fetch session, but the SignOut button needs client.
 import { SignOutButton } from "./sign-out-button";
 import { SupportTicketDialog } from "./support-dialog";
+import { SearchButton } from "./search-button";
 
 export async function Sidebar() {
     const session = await auth();
@@ -25,18 +26,19 @@ export async function Sidebar() {
     }
 
     const links = [
-        { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER"] },
-        { name: "Planlama", href: "/dashboard/planning", icon: CalendarDays, roles: ["ADMIN", "PLANNER"] },
-        { name: "Yarı Mamül", href: "/dashboard/semi-finished", icon: Layers, roles: ["ADMIN", "PLANNER", "WORKER"] },
-        { name: "Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER"] },
+        { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER"], shortcut: "D" },
+        { name: "Planlama", href: "/dashboard/planning", icon: CalendarDays, roles: ["ADMIN", "PLANNER"], shortcut: "P" },
+        { name: "Yarı Mamül", href: "/dashboard/semi-finished", icon: Layers, roles: ["ADMIN", "PLANNER", "WORKER"], shortcut: "S" },
+        { name: "Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER"], shortcut: "W" },
         {
             name: "Onaylar",
             href: "/dashboard/admin/approvals",
             icon: CheckCircle,
             roles: ["ADMIN"],
-            badge: pendingCount > 0
+            badge: pendingCount > 0,
+            shortcut: "A"
         },
-        { name: "Üretim Girişi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WORKER"] },
+        { name: "Üretim Girişi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WORKER"], shortcut: "U" },
         { name: "Kullanıcılar", href: "/dashboard/admin/users", icon: Users, roles: ["ADMIN"] },
         { name: "Katalog", href: "/dashboard/admin/catalog", icon: ClipboardList, roles: ["ADMIN"] },
         { name: "Özellik Yönetimi", href: "/dashboard/admin/features", icon: Settings2, roles: ["ADMIN", "PLANNER"] },
@@ -54,6 +56,10 @@ export async function Sidebar() {
                 <p className="text-xs text-slate-400 mt-1">Rol: {role}</p>
             </div>
 
+            <div className="px-4 mb-2">
+                <SearchButton />
+            </div>
+
             <nav className="flex-1 px-4 space-y-2">
                 {links.map((link) => {
                     if (!link.roles.includes(role)) return null;
@@ -61,10 +67,16 @@ export async function Sidebar() {
                         <Link
                             key={link.href}
                             href={link.href}
-                            className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors relative"
+                            className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors relative group"
+                            title={(link as any).shortcut ? `Alt+${(link as any).shortcut}` : undefined}
                         >
                             <link.icon className="w-5 h-5 text-slate-300" />
                             <span className="font-medium">{link.name}</span>
+                            {(link as any).shortcut && (
+                                <kbd className="ml-auto hidden group-hover:inline-flex h-5 select-none items-center rounded border border-slate-600 bg-slate-800 px-1.5 font-mono text-[10px] text-slate-400">
+                                    Alt+{(link as any).shortcut}
+                                </kbd>
+                            )}
                             {(link as any).badge && (
                                 <span className="absolute right-2 top-3 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
                             )}

@@ -19,6 +19,7 @@ import { ProductImage } from "@/components/product-image";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect } from "react";
 import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
+import { Pagination } from "@/components/ui/pagination";
 
 
 type Product = {
@@ -167,6 +168,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [sortColumn, setSortColumn] = useState<keyof Product | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 25;
 
     // Detail View State
     const [viewProduct, setViewProduct] = useState<Product | null>(null);
@@ -235,6 +238,29 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
         return 0;
     });
 
+    // Pagination
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    const paginatedProducts = filtered.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // Reset page when filters change
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+        setCurrentPage(1);
+    };
+
+    const handleStatusFilterChange = (value: string) => {
+        setStatusFilter(value);
+        setCurrentPage(1);
+    };
+
+    const handleDateRangeChange = (range: DateRange | undefined) => {
+        setDateRange(range);
+        setCurrentPage(1);
+    };
+
     const SortIcon = ({ column }: { column: keyof Product }) => {
         if (sortColumn !== column) return <span className="ml-1 text-slate-300">↕</span>;
         return <span className="ml-1 text-blue-500">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
@@ -246,12 +272,12 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                 <Input
                     placeholder="Ara: Ürün, Kod, Barkod veya Raf..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     className="max-w-sm"
                 />
                 <select
                     value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
+                    onChange={(e) => handleStatusFilterChange(e.target.value)}
                     className="h-10 w-[180px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     <option value="ALL">Tümü</option>
@@ -259,7 +285,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     <option value="COMPLETED">Tamamlananlar</option>
                 </select>
                 <div className="relative">
-                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                    <DateRangeFilter date={dateRange} setDate={handleDateRangeChange} />
                     {dateRange?.from && (
                         <Button
                             variant="ghost"
@@ -328,7 +354,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {filtered.map((p) => (
+                        {paginatedProducts.map((p) => (
                             <TableRow
                                 key={p.id}
                                 className={`cursor-pointer transition-colors ${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) && p.status !== 'COMPLETED' ? 'bg-red-50 hover:bg-red-100' :
@@ -391,7 +417,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {filtered.length === 0 && (
+                        {paginatedProducts.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={11} className="text-center py-8 text-slate-500">
                                     Kayıt bulunamadı.
@@ -400,6 +426,13 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                         )}
                     </TableBody>
                 </Table>
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                    itemsPerPage={itemsPerPage}
+                    totalItems={filtered.length}
+                />
             </div>
 
             {/* View Product Details Dialog */}

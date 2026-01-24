@@ -55,19 +55,20 @@ export default function ProductionPage() {
 
     return (
         <div className="space-y-6 max-w-5xl mx-auto">
-            <h2 className="text-3xl font-bold tracking-tight">Depo / Üretim Girişi</h2>
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Depo / Üretim Girişi</h2>
 
             <Card>
                 <CardHeader><CardTitle>Barkod Okut</CardTitle></CardHeader>
                 <CardContent>
-                    <form onSubmit={handleScan} className="flex gap-2">
+                    <form onSubmit={handleScan} className="flex flex-col sm:flex-row gap-2">
                         <Input
                             autoFocus
                             placeholder="Barkodu okutun veya yazın..."
                             value={barcode}
                             onChange={e => setBarcode(e.target.value)}
+                            className="text-lg h-12"
                         />
-                        <Button type="submit" disabled={loading}>Bul</Button>
+                        <Button type="submit" disabled={loading} className="h-12 min-w-[100px]">Bul</Button>
                     </form>
                     {msg && <p className="mt-2 text-red-500 font-medium">{msg}</p>}
                 </CardContent>
@@ -80,44 +81,48 @@ export default function ProductionPage() {
                         <p className="text-sm text-blue-700">Model: {product.model}</p>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <span className="text-slate-500">Toplam Planlanan:</span>
-                                <div className="text-xl font-bold">{product.quantity}</div>
+                        <div className="grid grid-cols-3 gap-2 md:gap-4 text-sm">
+                            <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                <span className="text-slate-500 text-xs md:text-sm">Planlanan</span>
+                                <div className="text-lg md:text-xl font-bold">{product.quantity}</div>
                             </div>
-                            <div>
-                                <span className="text-slate-500">Üretilen:</span>
-                                <div className="text-xl font-bold text-orange-600">{product.produced}</div>
+                            <div className="text-center p-2 bg-orange-50 rounded-lg">
+                                <span className="text-slate-500 text-xs md:text-sm">Üretilen</span>
+                                <div className="text-lg md:text-xl font-bold text-orange-600">{product.produced}</div>
                             </div>
-                            <div>
-                                <span className="text-slate-500">Kalan:</span>
-                                <div className="text-xl font-bold text-green-600">{product.quantity - product.produced}</div>
+                            <div className="text-center p-2 bg-green-50 rounded-lg">
+                                <span className="text-slate-500 text-xs md:text-sm">Kalan</span>
+                                <div className="text-lg md:text-xl font-bold text-green-600">{product.quantity - product.produced}</div>
                             </div>
                         </div>
 
                         <div className="border-t pt-4 space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Şu anki Üretim Adedi</label>
-                                <Input
-                                    type="number"
-                                    placeholder="Adet giriniz..."
-                                    value={quantity}
-                                    onChange={e => setQuantity(e.target.value)}
-                                    max={product.quantity - product.produced}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Raf / Konum (Zorunlu)</label>
-                                <Input
-                                    placeholder="ör. A-12"
-                                    value={shelf}
-                                    onChange={e => setShelf(e.target.value)}
-                                    required
-                                />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Üretim Adedi</label>
+                                    <Input
+                                        type="number"
+                                        placeholder="Adet giriniz..."
+                                        value={quantity}
+                                        onChange={e => setQuantity(e.target.value)}
+                                        max={product.quantity - product.produced}
+                                        className="text-lg h-12"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Raf / Konum (Zorunlu)</label>
+                                    <Input
+                                        placeholder="ör. A-12"
+                                        value={shelf}
+                                        onChange={e => setShelf(e.target.value)}
+                                        required
+                                        className="text-lg h-12"
+                                    />
+                                </div>
                             </div>
 
-                            <Button onClick={handleSubmit} className="w-full bg-green-600 hover:bg-green-700" disabled={loading}>
-                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            <Button onClick={handleSubmit} className="w-full h-14 text-lg bg-green-600 hover:bg-green-700" disabled={loading}>
+                                {loading && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
                                 Girişi Onayla
                             </Button>
                         </div>
@@ -127,9 +132,9 @@ export default function ProductionPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Üretilecekler Listesi (Barkodu Hazır)</CardTitle>
+                    <CardTitle className="text-lg md:text-xl">Üretilecekler Listesi (Barkodu Hazır)</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="overflow-x-auto">
                     <ProductionQueue />
                 </CardContent>
             </Card>

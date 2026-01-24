@@ -11,6 +11,7 @@ import BarcodeDisplay from "@/components/barcode-display";
 import { revokeApproval } from "@/lib/actions";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
+import { Pagination } from "@/components/ui/pagination";
 
 type Product = {
     id: number;
@@ -34,6 +35,8 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         direction: 'desc',
     });
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 25;
 
     const filteredProducts = products.filter(p => {
         if (dateRange?.from) {
@@ -72,6 +75,19 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         return 0;
     });
 
+    // Pagination
+    const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
+    const paginatedProducts = sortedProducts.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // Reset page when filters change
+    const handleDateRangeChange = (range: DateRange | undefined) => {
+        setDateRange(range);
+        setCurrentPage(1);
+    };
+
     const requestSort = (key: keyof Product) => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -93,7 +109,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         <div className="space-y-4">
             <div className="flex justify-end gap-2">
                 <div className="relative">
-                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                    <DateRangeFilter date={dateRange} setDate={handleDateRangeChange} />
                     {dateRange?.from && (
                         <Button
                             variant="ghost"
@@ -138,7 +154,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {sortedProducts.map(p => (
+                    {paginatedProducts.map(p => (
                         <TableRow key={p.id} className="h-8">
                             <TableCell className="py-2">
                                 <div className="flex justify-center">
@@ -174,13 +190,20 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                             </TableCell>
                         </TableRow>
                     ))}
-                    {sortedProducts.length === 0 && (
+                    {paginatedProducts.length === 0 && (
                         <TableRow>
                             <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
                         </TableRow>
                     )}
                 </TableBody>
             </Table>
+            <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                totalItems={sortedProducts.length}
+            />
         </div>
     );
 }

@@ -6,10 +6,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ApproveButton } from "@/components/approve-button";
 import { RejectButton } from "@/components/reject-button";
 import { EditProductDialog } from "@/components/edit-product-dialog";
-import { approveProduct, rejectProduct } from "@/lib/actions";
+import { approveProduct, rejectProduct, bulkApprove, bulkReject, bulkDelete } from "@/lib/actions";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { translateStatus } from "@/lib/translations";
+import { Pagination } from "@/components/ui/pagination";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkActionBar } from "@/components/bulk-action-bar";
 
 interface PendingApprovalsTableProps {
     pendingProducts: any[];
@@ -19,17 +22,69 @@ interface PendingApprovalsTableProps {
 export function PendingApprovalsTable({ pendingProducts, userRole }: PendingApprovalsTableProps) {
     const [selectedProduct, setSelectedProduct] = useState<any>(null);
     const [isOpen, setIsOpen] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 25;
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+    // Pagination
+    const totalPages = Math.ceil(pendingProducts.length / itemsPerPage);
+    const paginatedProducts = pendingProducts.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
 
     const handleRowClick = (product: any) => {
         setSelectedProduct(product);
         setIsOpen(true);
     };
 
+    const toggleSelection = (id: number) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setSelectedIds(newSet);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === paginatedProducts.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(paginatedProducts.map((p: any) => p.id)));
+        }
+    };
+
+    const clearSelection = () => setSelectedIds(new Set());
+
+    const handleBulkApprove = async () => {
+        return await bulkApprove(Array.from(selectedIds));
+    };
+
+    const handleBulkReject = async (reason: string) => {
+        return await bulkReject(Array.from(selectedIds), reason);
+    };
+
+    const handleBulkDelete = async () => {
+        return await bulkDelete(Array.from(selectedIds));
+    };
+
+    const isAdmin = userRole === "ADMIN";
+
     return (
         <>
             <Table>
                 <TableHeader>
                     <TableRow>
+                        {isAdmin && (
+                            <TableHead className="w-[40px]">
+                                <Checkbox
+                                    checked={paginatedProducts.length > 0 && selectedIds.size === paginatedProducts.length}
+                                    onCheckedChange={toggleSelectAll}
+                                />
+                            </TableHead>
+                        )}
                         <TableHead>Ürün</TableHead>
                         <TableHead>Planlayan</TableHead>
                         <TableHead>Malzeme</TableHead>
@@ -42,12 +97,20 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {pendingProducts.map(p => (
+                    {paginatedProducts.map(p => (
                         <TableRow
                             key={p.id}
-                            className="cursor-pointer hover:bg-slate-50 transition-colors"
+                            className={`cursor-pointer hover:bg-slate-50 transition-colors ${selectedIds.has(p.id) ? 'bg-blue-50' : ''}`}
                             onClick={() => handleRowClick(p)}
                         >
+                            {isAdmin && (
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                    <Checkbox
+                                        checked={selectedIds.has(p.id)}
+                                        onCheckedChange={() => toggleSelection(p.id)}
+                                    />
+                                </TableCell>
+                            )}
                             <TableCell>
                                 <div className="flex items-center gap-3">
                                     {p.imageUrl && (
@@ -84,13 +147,20 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
                             </TableCell>
                         </TableRow>
                     ))}
-                    {pendingProducts.length === 0 && (
+                    {paginatedProducts.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={9} className="text-center py-4 text-slate-500">Onay bekleyen ürün yok.</TableCell>
+                            <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-4 text-slate-500">Onay bekleyen ürün yok.</TableCell>
                         </TableRow>
                     )}
                 </TableBody>
             </Table>
+            <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                totalItems={pendingProducts.length}
+            />
 
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -178,6 +248,16 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
                     )}
                 </DialogContent>
             </Dialog>
+
+            {isAdmin && (
+                <BulkActionBar
+                    selectedCount={selectedIds.size}
+                    onClearSelection={clearSelection}
+                    onBulkApprove={handleBulkApprove}
+                    onBulkReject={handleBulkReject}
+                    onBulkDelete={handleBulkDelete}
+                />
+            )}
         </>
     );
 }

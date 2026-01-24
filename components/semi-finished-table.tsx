@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
     Table,
     TableBody,
@@ -15,6 +16,7 @@ import { SemiFinishedStockDialog } from "./semi-finished-stock-dialog";
 import { Edit, ArrowUpCircle, ArrowDownCircle, Trash2 } from "lucide-react";
 import { deleteSemiFinished } from "@/lib/actions";
 import { toast } from "sonner";
+import { Pagination } from "@/components/ui/pagination";
 
 interface SemiFinished {
     id: number;
@@ -42,6 +44,16 @@ interface SemiFinishedTableProps {
 }
 
 export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 25;
+
+    // Pagination
+    const totalPages = Math.ceil(items.length / itemsPerPage);
+    const paginatedItems = items.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
     const handleDelete = async (id: number, name: string) => {
         if (!confirm(`"${name}" yarı mamülünü silmek istediğinize emin misiniz?`)) {
             return;
@@ -64,21 +76,22 @@ export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
     }
 
     return (
-        <Table>
-            <TableHeader>
-                <TableRow>
-                    <TableHead>Kod</TableHead>
-                    <TableHead>Ad</TableHead>
-                    <TableHead>Kategori</TableHead>
-                    <TableHead>Lokasyon</TableHead>
-                    <TableHead className="text-center">Stok</TableHead>
-                    <TableHead className="text-center">Min. Stok</TableHead>
-                    <TableHead className="text-center">Durum</TableHead>
-                    <TableHead className="text-right">İşlemler</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {items.map((item) => {
+        <>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Kod</TableHead>
+                        <TableHead>Ad</TableHead>
+                        <TableHead>Kategori</TableHead>
+                        <TableHead>Lokasyon</TableHead>
+                        <TableHead className="text-center">Stok</TableHead>
+                        <TableHead className="text-center">Min. Stok</TableHead>
+                        <TableHead className="text-center">Durum</TableHead>
+                        <TableHead className="text-right">İşlemler</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {paginatedItems.map((item) => {
                     const isLowStock = item.quantity <= item.minStock;
                     const isOutOfStock = item.quantity === 0;
 
@@ -156,7 +169,15 @@ export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
                         </TableRow>
                     );
                 })}
-            </TableBody>
-        </Table>
+                </TableBody>
+            </Table>
+            <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                totalItems={items.length}
+            />
+        </>
     );
 }

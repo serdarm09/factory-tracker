@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 
 export default function NewOrderPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const isClone = searchParams.get('clone') === 'true';
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
 
@@ -51,7 +53,27 @@ export default function NewOrderPage() {
                 setMasters(masterList);
             });
         });
-    }, []);
+
+        // Check for clone data
+        if (isClone) {
+            const cloneData = sessionStorage.getItem('cloneOrderData');
+            if (cloneData) {
+                try {
+                    const data = JSON.parse(cloneData);
+                    setCompany(data.company || "");
+                    setOrderName(data.orderName ? `${data.orderName} (Kopya)` : "");
+                    if (data.items && data.items.length > 0) {
+                        setSelectedItems(data.items);
+                        setStep(2); // Jump to step 2 with items loaded
+                        toast.success(`${data.items.length} ürün klonlandı`);
+                    }
+                    sessionStorage.removeItem('cloneOrderData');
+                } catch (e) {
+                    console.error("Clone data parse error:", e);
+                }
+            }
+        }
+    }, [isClone]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {

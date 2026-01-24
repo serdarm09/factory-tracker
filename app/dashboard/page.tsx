@@ -62,6 +62,24 @@ export default async function DashboardPage() {
         }
     });
 
+    // Geciken ürünler (termin tarihi geçmiş, tamamlanmamış)
+    const overdueProducts = products.filter(p => {
+        if (p.status === 'COMPLETED' || p.status === 'PENDING') return false;
+        if (!p.terminDate) return false;
+        return new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0));
+    });
+
+    // Bu hafta tamamlanan
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const completedThisWeek = products.filter(p => {
+        if (p.status !== 'COMPLETED') return false;
+        // Use the most recent production log's createdAt if available, otherwise use product createdAt
+        const lastLog = p.logs[0]; // logs are ordered by createdAt desc
+        const completedDate = lastLog ? new Date(lastLog.createdAt) : new Date(p.createdAt);
+        return completedDate >= weekStart;
+    });
+
     // Haftalık üretim verileri (son 7 gün)
     const today = new Date();
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -120,7 +138,7 @@ export default async function DashboardPage() {
             </div>
 
             {/* Auto refresh for admins */}
-            {(session?.user as any).role === 'ADMIN' && <AutoRefresh interval={15000} />}
+            {(session?.user as any).role === 'ADMIN' && <AutoRefresh intervalMs={15000} />}
 
             {(session?.user as any).role === 'ADMIN' || (session?.user as any).role === 'VIEWER' ? (
                 <>
@@ -177,7 +195,7 @@ export default async function DashboardPage() {
                     </div>
 
                     {/* İkinci Satır - Ek İstatistikler */}
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Aktif Siparişler</CardTitle>
@@ -200,14 +218,27 @@ export default async function DashboardPage() {
                             </CardContent>
                         </Card>
 
-                        <Card>
+                        <Card className={overdueProducts.length > 0 ? "border-red-200 bg-red-50" : ""}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Üretim Hedefi</CardTitle>
-                                <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                                <CardTitle className="text-sm font-medium">Geciken</CardTitle>
+                                <AlertTriangle className={`h-5 w-5 ${overdueProducts.length > 0 ? "text-red-500" : "text-muted-foreground"}`} />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{totalProduced} / {totalPlanned}</div>
-                                <p className="text-xs text-muted-foreground">Üretilen / Planlanan</p>
+                                <div className={`text-2xl font-bold ${overdueProducts.length > 0 ? "text-red-600" : ""}`}>
+                                    {overdueProducts.length}
+                                </div>
+                                <p className="text-xs text-muted-foreground">Termin tarihi geçmiş</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="border-green-200 bg-green-50">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">Bu Hafta</CardTitle>
+                                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-green-600">{completedThisWeek.length}</div>
+                                <p className="text-xs text-muted-foreground">Tamamlanan ürün</p>
                             </CardContent>
                         </Card>
                     </div>
