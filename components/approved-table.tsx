@@ -4,14 +4,16 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import BarcodeDisplay from "@/components/barcode-display";
 import { revokeApproval } from "@/lib/actions";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { Pagination } from "@/components/ui/pagination";
+import { format } from "date-fns";
+import { tr } from "date-fns/locale";
 
 type Product = {
     id: number;
@@ -27,6 +29,15 @@ type Product = {
     terminDate: Date;
     material?: string | null;
     description?: string | null;
+    imageUrl?: string | null;
+    footType?: string | null;
+    footMaterial?: string | null;
+    armType?: string | null;
+    backType?: string | null;
+    fabricType?: string | null;
+    master?: string | null;
+    creator?: { username: string } | null;
+    order?: { company: string } | null;
 };
 
 export function ApprovedTable({ products }: { products: Product[] }) {
@@ -37,6 +48,13 @@ export function ApprovedTable({ products }: { products: Product[] }) {
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 25;
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [isOpen, setIsOpen] = useState(false);
+
+    const handleRowClick = (product: Product) => {
+        setSelectedProduct(product);
+        setIsOpen(true);
+    };
 
     const filteredProducts = products.filter(p => {
         if (dateRange?.from) {
@@ -155,7 +173,11 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                 </TableHeader>
                 <TableBody>
                     {paginatedProducts.map(p => (
-                        <TableRow key={p.id} className="h-8">
+                        <TableRow
+                            key={p.id}
+                            className="h-8 cursor-pointer hover:bg-slate-50 transition-colors"
+                            onClick={() => handleRowClick(p)}
+                        >
                             <TableCell className="py-2">
                                 <div className="flex justify-center">
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center ${p.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -164,9 +186,14 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium py-2">
-                                <Link href={`/dashboard/admin/products/${p.id}`} className="hover:underline text-blue-600 font-semibold">
-                                    {p.name}
-                                </Link>
+                                <div className="flex items-center gap-3">
+                                    {p.imageUrl && (
+                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-slate-100">
+                                            <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
+                                        </div>
+                                    )}
+                                    <span className="text-blue-600 font-semibold">{p.name}</span>
+                                </div>
                             </TableCell>
                             <TableCell className="py-2">{p.model}</TableCell>
                             <TableCell className="py-2 text-sm">{p.material || '-'}</TableCell>
@@ -185,7 +212,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                                     <span className="font-mono text-slate-400">-</span>
                                 )}
                             </TableCell>
-                            <TableCell className="text-right py-2">
+                            <TableCell className="text-right py-2" onClick={(e) => e.stopPropagation()}>
                                 <CancelButton id={p.id} status={p.status} />
                             </TableCell>
                         </TableRow>
@@ -204,6 +231,105 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                 itemsPerPage={itemsPerPage}
                 totalItems={sortedProducts.length}
             />
+
+            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Ürün Detayları: {selectedProduct?.name}</DialogTitle>
+                        <DialogDescription>
+                            Kod: {selectedProduct?.systemCode} | Model: {selectedProduct?.model}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {selectedProduct && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div className="col-span-full flex justify-center">
+                                {selectedProduct.imageUrl ? (
+                                    <div className="relative h-64 w-full md:w-96 mb-4 rounded-lg overflow-hidden border bg-slate-100">
+                                        <img
+                                            src={selectedProduct.imageUrl}
+                                            alt={selectedProduct.name}
+                                            className="object-contain w-full h-full"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="relative h-64 w-full md:w-96 mb-4 rounded-lg overflow-hidden border bg-slate-100 flex items-center justify-center text-slate-400">
+                                        Görsel yok
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                <Section title="Temel Bilgiler">
+                                    <Detail label="Firma / Müşteri" value={selectedProduct.order?.company || selectedProduct.company} />
+                                    <Detail label="Adet" value={selectedProduct.quantity} />
+                                    <Detail label="Üretilen" value={selectedProduct.produced} />
+                                    <Detail label="Durum" value={selectedProduct.status === 'COMPLETED' ? 'Tamamlandı' : 'Üretimde'} />
+                                    <Detail label="Barkod" value={selectedProduct.barcode || '-'} />
+                                </Section>
+
+                                <Section title="Tarihler">
+                                    <Detail label="Giriş Tarihi" value={format(new Date(selectedProduct.createdAt), "PPP", { locale: tr })} />
+                                    <Detail label="Termin Tarihi" value={format(new Date(selectedProduct.terminDate), "PPP", { locale: tr })} />
+                                </Section>
+                            </div>
+
+                            <div className="space-y-4">
+                                <Section title="Özellikler">
+                                    <Detail label="Ayak Modeli" value={selectedProduct.footType} />
+                                    <Detail label="Ayak Özelliği" value={selectedProduct.footMaterial} />
+                                    <Detail label="Kol Modeli" value={selectedProduct.armType} />
+                                    <Detail label="Sırt Modeli" value={selectedProduct.backType} />
+                                    <Detail label="Kumaş Türü" value={selectedProduct.fabricType} />
+                                    <Detail label="Malzeme Detayı" value={selectedProduct.material} />
+                                </Section>
+
+                                <Section title="Personel">
+                                    <Detail label="Planlayan" value={selectedProduct.creator?.username} />
+                                    <Detail label="Atanan Usta" value={selectedProduct.master} />
+                                </Section>
+                            </div>
+
+                            <div className="col-span-full border-t pt-4">
+                                <h4 className="font-semibold mb-2">Açıklama / Notlar</h4>
+                                <div className="p-3 bg-slate-50 rounded-md border text-sm min-h-[60px]">
+                                    {selectedProduct.description || "Açıklama yok."}
+                                </div>
+                            </div>
+
+                            {selectedProduct.barcode && (
+                                <div className="col-span-full border-t pt-4">
+                                    <h4 className="font-semibold mb-2">Barkod</h4>
+                                    <div className="flex justify-center">
+                                        <BarcodeDisplay value={selectedProduct.barcode} />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function Section({ title, children }: { title: string, children: React.ReactNode }) {
+    return (
+        <div className="border rounded-md p-3">
+            <h4 className="font-semibold text-sm text-slate-900 border-b pb-1 mb-2 bg-slate-50 -mx-3 -mt-3 px-3 pt-2 rounded-t-md">{title}</h4>
+            <div className="space-y-2">
+                {children}
+            </div>
+        </div>
+    );
+}
+
+function Detail({ label, value }: { label: string, value: any }) {
+    if (!value) return null;
+    return (
+        <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{label}:</span>
+            <span className="font-medium">{value}</span>
         </div>
     );
 }

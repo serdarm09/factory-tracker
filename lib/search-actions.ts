@@ -33,7 +33,6 @@ export async function globalSearch(query: string): Promise<{ results: SearchResu
                     { name: { contains: searchTerm } },
                     { systemCode: { contains: searchTerm } },
                     { barcode: { contains: searchTerm } },
-                    { company: { contains: searchTerm } },
                     { model: { contains: searchTerm } },
                 ]
             },
@@ -43,8 +42,12 @@ export async function globalSearch(query: string): Promise<{ results: SearchResu
                 name: true,
                 systemCode: true,
                 model: true,
-                company: true,
                 status: true,
+                order: {
+                    select: {
+                        company: true
+                    }
+                }
             }
         });
 
@@ -53,7 +56,7 @@ export async function globalSearch(query: string): Promise<{ results: SearchResu
                 id: product.id,
                 type: "product",
                 title: product.name,
-                subtitle: `${product.systemCode} | ${product.model} | ${product.company || ""}`,
+                subtitle: `${product.systemCode} | ${product.model} | ${product.order?.company || ""}`,
                 href: product.status === "PENDING"
                     ? "/dashboard/admin/approvals"
                     : "/dashboard/warehouse",
@@ -65,14 +68,14 @@ export async function globalSearch(query: string): Promise<{ results: SearchResu
             where: {
                 OR: [
                     { company: { contains: searchTerm } },
-                    { orderName: { contains: searchTerm } },
+                    { name: { contains: searchTerm } },
                 ]
             },
             take: 5,
             select: {
                 id: true,
                 company: true,
-                orderName: true,
+                name: true,
                 createdAt: true,
                 _count: {
                     select: { products: true }
@@ -84,7 +87,7 @@ export async function globalSearch(query: string): Promise<{ results: SearchResu
             results.push({
                 id: order.id,
                 type: "order",
-                title: order.orderName || order.company,
+                title: order.name || order.company,
                 subtitle: `${order.company} | ${order._count.products} ürün`,
                 href: "/dashboard/planning",
             });

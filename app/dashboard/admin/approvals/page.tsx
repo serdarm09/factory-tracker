@@ -30,7 +30,8 @@ export default async function ApprovalsPage() {
         take: 50,
         orderBy: { createdAt: 'desc' },
         include: {
-            order: true // Order bilgisini dahil et
+            creator: true,
+            order: true
         }
     });
 

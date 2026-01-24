@@ -85,7 +85,6 @@ export async function createProduct(formData: FormData) {
             data: {
                 name,
                 model,
-                company: company || null,
                 quantity,
                 terminDate: terminDate || null, // Fix type mismatch: undefined -> null
                 orderDate,
@@ -631,7 +630,7 @@ export async function getOrderForClone(orderId: number) {
         // Transform to the format expected by new-order page
         const cloneData = {
             company: order.company,
-            orderName: order.orderName || order.name || "",
+            orderName: order.name || "",
             items: order.products.map(p => ({
                 code: p.model,
                 name: p.name,
@@ -1183,6 +1182,8 @@ export async function deleteProduct(id: number) {
         return { error: "Silme işlemi başarısız: " + (e as any).message };
     }
 }
+
+
 
 // Bulk Actions
 export async function bulkApprove(productIds: number[]) {
