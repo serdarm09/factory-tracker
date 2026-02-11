@@ -8,8 +8,8 @@ import { Label } from "@/components/ui/label";
 import { useRef, useState, useEffect } from "react";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
+import { CalendarIcon, X } from "lucide-react";
+import { format, parse, isValid } from "date-fns";
 import { tr } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ProductCombobox } from "./product-combobox";
@@ -114,6 +114,39 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
 
     return (
         <form ref={formRef} action={clientAction} className="space-y-4">
+            {/* NetSim Açıklamaları - Sadece düzenleme modunda ve açıklama varsa göster */}
+            {product && (product.aciklama1 || product.aciklama2 || product.aciklama3 || product.aciklama4) && (
+                <div className="p-4 border rounded-lg bg-blue-50 space-y-2">
+                    <h3 className="font-semibold text-sm text-blue-900 mb-2">NetSim Açıklamaları (Pazarlama Notları)</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        {product.aciklama1 && (
+                            <div className="bg-white p-2 rounded border">
+                                <span className="text-xs text-blue-600 font-medium">Açıklama 1:</span>
+                                <p className="text-slate-700">{product.aciklama1}</p>
+                            </div>
+                        )}
+                        {product.aciklama2 && (
+                            <div className="bg-white p-2 rounded border">
+                                <span className="text-xs text-blue-600 font-medium">Açıklama 2:</span>
+                                <p className="text-slate-700">{product.aciklama2}</p>
+                            </div>
+                        )}
+                        {product.aciklama3 && (
+                            <div className="bg-white p-2 rounded border">
+                                <span className="text-xs text-blue-600 font-medium">Açıklama 3:</span>
+                                <p className="text-slate-700">{product.aciklama3}</p>
+                            </div>
+                        )}
+                        {product.aciklama4 && (
+                            <div className="bg-white p-2 rounded border">
+                                <span className="text-xs text-blue-600 font-medium">Açıklama 4:</span>
+                                <p className="text-slate-700">{product.aciklama4}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="space-y-2">
                 <Label>Ürün Ara (Katalogdan Seç)</Label>
                 <div className="w-full">
@@ -245,59 +278,93 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2 flex flex-col">
                     <Label htmlFor="orderDate">Sipariş Tarihi</Label>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant={"outline"}
-                                className={cn(
-                                    "w-full pl-3 text-left font-normal",
-                                    !orderDate && "text-muted-foreground"
-                                )}
-                            >
-                                {orderDate ? format(orderDate, "PPP", { locale: tr }) : <span>Tarih seçin</span>}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                    <div className="flex gap-2">
+                        <Input
+                            type="text"
+                            placeholder="gg.aa.yyyy"
+                            value={orderDate ? format(orderDate, "dd.MM.yyyy") : ""}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "") {
+                                    setOrderDate(undefined);
+                                    return;
+                                }
+                                const parsed = parse(val, "dd.MM.yyyy", new Date());
+                                if (isValid(parsed)) {
+                                    setOrderDate(parsed);
+                                }
+                            }}
+                            className="flex-1"
+                        />
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" type="button" size="icon">
+                                    <CalendarIcon className="h-4 w-4" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                    mode="single"
+                                    selected={orderDate}
+                                    onSelect={setOrderDate}
+                                    locale={tr}
+                                    disabled={(date) => date > new Date()}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        {orderDate && (
+                            <Button variant="ghost" type="button" size="icon" onClick={() => setOrderDate(undefined)} className="text-red-500 hover:text-red-600">
+                                <X className="h-4 w-4" />
                             </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={orderDate}
-                                onSelect={setOrderDate}
-                                locale={tr}
-                                disabled={(date) => date > new Date()}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+                        )}
+                    </div>
                     <input type="hidden" name="orderDate" value={orderDate ? format(orderDate, "yyyy-MM-dd") : ""} />
                 </div>
 
                 <div className="space-y-2 flex flex-col">
                     <Label htmlFor="terminDate">Termin Tarihi</Label>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant={"outline"}
-                                className={cn(
-                                    "w-full pl-3 text-left font-normal",
-                                    !date && "text-muted-foreground"
-                                )}
-                            >
-                                {date ? format(date, "PPP", { locale: tr }) : <span>Tarih seçin</span>}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                    <div className="flex gap-2">
+                        <Input
+                            type="text"
+                            placeholder="gg.aa.yyyy"
+                            value={date ? format(date, "dd.MM.yyyy") : ""}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "") {
+                                    setDate(undefined);
+                                    return;
+                                }
+                                const parsed = parse(val, "dd.MM.yyyy", new Date());
+                                if (isValid(parsed)) {
+                                    setDate(parsed);
+                                }
+                            }}
+                            className="flex-1"
+                        />
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" type="button" size="icon">
+                                    <CalendarIcon className="h-4 w-4" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                    mode="single"
+                                    selected={date}
+                                    onSelect={setDate}
+                                    locale={tr}
+                                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        {date && (
+                            <Button variant="ghost" type="button" size="icon" onClick={() => setDate(undefined)} className="text-red-500 hover:text-red-600">
+                                <X className="h-4 w-4" />
                             </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={date}
-                                onSelect={setDate}
-                                locale={tr}
-                                disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+                        )}
+                    </div>
                     <input type="hidden" name="terminDate" value={date ? format(date, "yyyy-MM-dd") : ""} />
                 </div>
             </div>
@@ -332,8 +399,8 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                         <input type="hidden" name="armType" value={armType} />
                     </div>
                     <div className="space-y-2">
-                        <Label>Sırt Modeli</Label>
-                        <FeatureCombobox category="BACK_TYPE" placeholder="Sırt Tipi Seç" onSelect={setBackType} initialValue={backType} />
+                        <Label>Sünger</Label>
+                        <FeatureCombobox category="BACK_TYPE" placeholder="Sünger Seç" onSelect={setBackType} initialValue={backType} />
                         <input type="hidden" name="backType" value={backType} />
                     </div>
                 </div>

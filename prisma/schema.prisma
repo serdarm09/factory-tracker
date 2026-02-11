@@ -11,7 +11,7 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
-  role      String   // ADMIN, PLANNER, MARKETER, WORKER, VIEWER
+  role      String   // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER
   createdProducts Product[] @relation("CreatedProducts")
   createdOrders   Order[]   @relation("CreatedOrders")
   createdAt DateTime @default(now())
@@ -24,11 +24,19 @@ model User {
 // Order Grouping (Sipariş)
 model Order {
   id          Int       @id @default(autoincrement())
+  externalId  String?   @unique // NetSim ALISSATIS_NO referansı
   name        String    // Sipariş Adı / Ref
   company     String    // Müşteri / Firma
+  customerName String?  // Müşteri Unvanı
+  description String?   // Sipariş açıklaması
+  orderDate   DateTime? // Sipariş tarihi
+  deliveryDate DateTime? // Teslim tarihi
+  totalAmount Float?    // Toplam tutar
+  currency    String?   @default("TL") // Para birimi
   status      String    @default("REQUESTED") // REQUESTED, PLANNED, APPROVED, COMPLETED, CANCELLED
   marketingById Int?
   marketingBy User?     @relation("CreatedOrders", fields: [marketingById], references: [id])
+  createdById Int?
   products    Product[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -37,19 +45,26 @@ model Order {
 // Product Line Item (Ürün / İş Emri)
 model Product {
   id          Int      @id @default(autoincrement())
+  externalId  String?  @unique // NetSim ALISSATIS_DETAY_NO referansı
   orderId     Int?
   order       Order?   @relation(fields: [orderId], references: [id])
-  
+
   name        String
   model       String
-  
+  sku         String?  // Stok kodu
+
   // Quantities
   quantity    Int      // Planlanan Adet
   produced    Int      @default(0) // Toplam Üretilen
+  unit        String?  @default("Adet") // Birim
+  unitPrice   Float?   // Birim fiyat
+  totalPrice  Float?   // Toplam fiyat
+  sortOrder   Int?     @default(0) // Sıra numarası
   
   // Dates
   orderDate   DateTime @default(now())
   terminDate  DateTime? // Planlama tarafından girilecek (Optional initially)
+  productionDate DateTime? // Üretim tarihi (Planlanan/Gerçekleşen)
   
   // Specs
   material    String?
@@ -58,6 +73,13 @@ model Product {
   rejectionReason String? // Red nedeni
   imageUrl    String?
 
+  // NetSim Açıklamalar
+  aciklama1   String?
+  aciklama2   String?
+  aciklama3   String?
+  aciklama4   String?
+  dstAdi      String?  // DST - Değişken Stok (Renk vb.)
+
   // Config
   footType     String?
   footMaterial String?
@@ -65,9 +87,22 @@ model Product {
   backType     String?
   fabricType   String?
   
-  master      String? // Usta Adı
+  master      String? // Usta Adi
 
-  status      String   @default("PENDING") 
+  status      String   @default("PENDING")
+  subStatus   String?  // Alt durum (Dosendi, Montajda, Paketleme Bekliyor, Sevk Bekliyor, vb.)
+
+  // Uretim Muhendisi Notlari ve Asamalar
+  engineerNote    String?  // Muhendis aciklamasi
+  cutQuantity     Int      @default(0) // Kesim yapilan adet
+  foamQty         Int      @default(0) // Sünger yapilan adet
+  upholsteryQty   Int      @default(0) // Doseme yapilan adet
+  assemblyQty     Int      @default(0) // Montaj yapilan adet
+  qualityQty      Int      @default(0) // Kalite kontrol gecen adet
+  packagedQty     Int      @default(0) // Paketlenen adet
+  storedQty       Int      @default(0) // Depoya alinan adet
+  shippedQty      Int      @default(0) // Sevk edilen adet
+
   createdById Int?
   creator     User?    @relation("CreatedProducts", fields: [createdById], references: [id])
   
@@ -81,6 +116,7 @@ model Product {
   inventory   Inventory[]
   bom         BomItem[]
   shipmentItems ShipmentItem[]
+  components    ProductComponent[]
 }
 
 // Multi-Shelf Inventory (Raf Stok)
@@ -215,4 +251,29 @@ model SemiFinishedLog {
   quantity        Int
   note            String?
   createdAt       DateTime     @default(now())
+}
+
+// Bildirimler (Admin'e gelen bildirimler)
+model Notification {
+  id          Int      @id @default(autoincrement())
+  type        String   // MARKETING_REJECT, APPROVAL_NEEDED, etc.
+  title       String
+  message     String
+  productId   Int?
+  productName String?
+  systemCode  String?
+  isRead      Boolean  @default(false)
+  createdBy   String?  // Bildirimi oluşturan kullanıcı adı
+  createdAt   DateTime @default(now())
+}
+
+model ProductComponent {
+  id        Int      @id @default(autoincrement())
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  category  String
+  value     String
+  createdAt DateTime @default(now())
+
+  @@unique([productId, category])
 }

@@ -256,3 +256,24 @@ export async function deleteAllCatalogItems() {
         return { error: "Silme işlemi sırasında hata oluştu" };
     }
 }
+
+export async function getProductComponents(productName: string) {
+    try {
+        const product = await prisma.product.findFirst({
+            where: { name: productName },
+            orderBy: { createdAt: 'desc' },
+            include: {
+                components: true
+            }
+        });
+
+        if (!product || !product.components) {
+            return [];
+        }
+
+        return product.components;
+    } catch (e) {
+        console.error("Get product components error:", e);
+        return [];
+    }
+}

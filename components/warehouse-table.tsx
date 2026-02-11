@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { updateProduct, getMasters } from "@/lib/actions";
-import { Pencil, Plus } from "lucide-react";
+import { updateProduct, getMasters, shipProduct } from "@/lib/actions";
+import { Pencil, Plus, Truck } from "lucide-react";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
@@ -29,6 +29,10 @@ type Product = {
     company: string | null;
     quantity: number;
     produced: number;
+    shipped?: number;
+    available?: number;
+    storedQty?: number; // Depodaki miktar
+    shippedQty?: number; // Sevk edilen miktar
     systemCode: string;
     barcode: string | null;
     status: string;
@@ -47,6 +51,11 @@ type Product = {
     fabricType?: string;
     master?: string | null;
     imageUrl?: string | null;
+    // NetSim Açıklamaları
+    aciklama1?: string | null;
+    aciklama2?: string | null;
+    aciklama3?: string | null;
+    aciklama4?: string | null;
 };
 
 function EditProductDialog({ product, role }: { product: Product, role: string }) {
@@ -156,6 +165,127 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
                         <Textarea name="description" defaultValue={product.description || ''} readOnly={isWorker} className={isWorker ? "bg-slate-100" : ""} maxLength={500} />
                     </div>
                     <Button type="submit" className="w-full">Kaydet</Button>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// Ship Product Dialog - for warehouse users to ship products
+function ShipProductDialog({ product, role }: { product: Product, role: string }) {
+    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [quantity, setQuantity] = useState("");
+    const [company, setCompany] = useState(product.company || "");
+    const [driverName, setDriverName] = useState("");
+    const [vehiclePlate, setVehiclePlate] = useState("");
+
+    // Calculate available quantity for shipping from storedQty (depodaki miktar)
+    const storedQty = (product as any).storedQty || 0;
+    const available = storedQty;
+
+    // Only show for roles that can ship (not ENGINEER - they only view)
+    if (!["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"].includes(role)) {
+        return null;
+    }
+
+    // Don't show if nothing available to ship
+    if (available <= 0) {
+        return null;
+    }
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+
+        const result = await shipProduct({
+            productId: product.id,
+            quantity: parseInt(quantity),
+            company: company,
+            driverName: driverName || undefined,
+            vehiclePlate: vehiclePlate || undefined
+        });
+
+        if (result.error) {
+            toast.error(result.error);
+        } else {
+            toast.success(`${quantity} adet sevk edildi!`);
+            setOpen(false);
+            setQuantity("");
+            setDriverName("");
+            setVehiclePlate("");
+        }
+        setLoading(false);
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="default" size="sm" className="h-8 gap-1 bg-green-600 hover:bg-green-700">
+                    <Truck className="h-4 w-4" />
+                    Sevk
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Truck className="h-5 w-5 text-green-600" />
+                        Ürün Sevk Et
+                    </DialogTitle>
+                    <DialogDescription>
+                        {product.name} - Depoda mevcut: <span className="font-bold text-green-600">{available}</span> adet
+                    </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                        <Label>Sevk Adedi *</Label>
+                        <Input
+                            type="number"
+                            value={quantity}
+                            onChange={(e) => setQuantity(e.target.value)}
+                            min={1}
+                            max={available}
+                            required
+                            placeholder={`Max: ${available}`}
+                            className="text-lg font-bold"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Firma / Müşteri *</Label>
+                        <Input
+                            value={company}
+                            onChange={(e) => setCompany(e.target.value)}
+                            required
+                            placeholder="Firma adı"
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Sürücü Adı</Label>
+                            <Input
+                                value={driverName}
+                                onChange={(e) => setDriverName(e.target.value)}
+                                placeholder="Opsiyonel"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Araç Plakası</Label>
+                            <Input
+                                value={vehiclePlate}
+                                onChange={(e) => setVehiclePlate(e.target.value)}
+                                placeholder="Opsiyonel"
+                            />
+                        </div>
+                    </div>
+                    <div className="pt-4 border-t">
+                        <Button
+                            type="submit"
+                            className="w-full bg-green-600 hover:bg-green-700"
+                            disabled={loading || !quantity || parseInt(quantity) <= 0}
+                        >
+                            {loading ? "Sevk ediliyor..." : `${quantity || 0} Adet Sevk Et`}
+                        </Button>
+                    </div>
                 </form>
             </DialogContent>
         </Dialog>
@@ -350,6 +480,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             <TableHead className="text-right cursor-pointer hover:bg-slate-50" onClick={() => handleSort('produced')}>
                                 İlerleme <SortIcon column="produced" />
                             </TableHead>
+                            <TableHead>Sevk</TableHead>
                             <TableHead></TableHead>
                         </TableRow>
                     </TableHeader>
@@ -407,9 +538,20 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <div className={`font-bold ${p.produced >= p.quantity ? 'text-blue-600' : 'text-yellow-600'}`}>
                                         {p.produced} / {p.quantity} ({Math.round((p.produced / p.quantity) * 100)}%)
                                     </div>
+                                    <div className="text-xs mt-1">
+                                        <span className="text-green-600 font-medium">Depoda: {p.storedQty || 0}</span>
+                                        {(p.shipped || 0) > 0 && (
+                                            <span className="text-slate-500 ml-2">| Sevk: {p.shipped}</span>
+                                        )}
+                                    </div>
                                 </TableCell>
                                 <TableCell>
-                                    {role !== 'VIEWER' && (
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                        <ShipProductDialog product={p} role={role} />
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    {role !== 'VIEWER' && role !== 'ENGINEER' && (
                                         <div onClick={(e) => e.stopPropagation()}>
                                             <EditProductDialog product={p} role={role} />
                                         </div>
@@ -419,7 +561,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                         ))}
                         {paginatedProducts.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={11} className="text-center py-8 text-slate-500">
+                                <TableCell colSpan={12} className="text-center py-8 text-slate-500">
                                     Kayıt bulunamadı.
                                 </TableCell>
                             </TableRow>
@@ -462,6 +604,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <Detail label="Firma / Müşteri" value={viewProduct.company} />
                                     <Detail label="Planlanan Adet" value={viewProduct.quantity} />
                                     <Detail label="Üretilen / Stok" value={viewProduct.produced} />
+                                    <Detail label="Depoda Mevcut" value={viewProduct.storedQty || 0} />
+                                    <Detail label="Sevk Edilen" value={viewProduct.shippedQty || 0} />
                                     <Detail label="Raf" value={viewProduct.inventory?.map(i => `${i.shelf} (${i.quantity})`).join(", ")} />
                                     <Detail label="Durum" value={viewProduct.status} />
                                     <Detail label="Barkod" value={viewProduct.barcode || '-'} />
@@ -481,7 +625,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <Detail label="Ayak Modeli" value={viewProduct.footType} />
                                     <Detail label="Ayak Özelliği" value={viewProduct.footMaterial} />
                                     <Detail label="Kol Modeli" value={viewProduct.armType} />
-                                    <Detail label="Sırt Modeli" value={viewProduct.backType} />
+                                    <Detail label="Sünger" value={viewProduct.backType} />
                                     <Detail label="Kumaş Türü" value={viewProduct.fabricType} />
                                     <Detail label="Malzeme Detayı" value={viewProduct.material} />
                                 </Section>
@@ -500,6 +644,35 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     {viewProduct.description || "Açıklama yok."}
                                 </div>
                             </div>
+
+                            {/* NetSim Açıklamaları */}
+                            {(viewProduct.aciklama1 || viewProduct.aciklama2 || viewProduct.aciklama3 || viewProduct.aciklama4) && (
+                                <div className="col-span-full border-t pt-4">
+                                    <h4 className="font-semibold mb-2 text-amber-700">NetSim Açıklamaları</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {viewProduct.aciklama1 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 1:</span> {viewProduct.aciklama1}
+                                            </div>
+                                        )}
+                                        {viewProduct.aciklama2 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 2:</span> {viewProduct.aciklama2}
+                                            </div>
+                                        )}
+                                        {viewProduct.aciklama3 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 3:</span> {viewProduct.aciklama3}
+                                            </div>
+                                        )}
+                                        {viewProduct.aciklama4 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 4:</span> {viewProduct.aciklama4}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </DialogContent>

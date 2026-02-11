@@ -103,6 +103,7 @@ export function FeatureCombobox({ category, placeholder, onSelect, defaultValue,
                 <Button
                     variant="outline"
                     role="combobox"
+                    type="button"
                     disabled={disabled}
                     aria-expanded={open}
                     className="w-full justify-between font-normal"
@@ -142,6 +143,7 @@ export function FeatureCombobox({ category, placeholder, onSelect, defaultValue,
                                 searchTerm && !items.some(i => i.name.toLowerCase() === searchTerm.toLowerCase()) ? (
                                     <Button
                                         variant="ghost"
+                                        type="button"
                                         className="w-full justify-start text-sm h-auto py-2 px-2"
                                         onClick={handleCreate}
                                         disabled={creating}

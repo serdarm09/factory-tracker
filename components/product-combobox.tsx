@@ -19,10 +19,12 @@ import {
 import { searchCatalog } from "@/lib/catalog-actions"
 
 interface ProductComboboxProps {
-    onSelect: (product: { code: string; name: string; imageUrl?: string | null }) => void;
+    onSelect: (product: { code: string; name: string; model?: string; systemCode?: string; imageUrl?: string | null }) => void;
+    placeholder?: string;
+    disabled?: boolean;
 }
 
-export function ProductCombobox({ onSelect }: ProductComboboxProps) {
+export function ProductCombobox({ onSelect, placeholder = "Ürün ara (Kod veya İsim)...", disabled = false }: ProductComboboxProps) {
     const [open, setOpen] = React.useState(false)
     const [query, setQuery] = React.useState("")
     const [results, setResults] = React.useState<any[]>([])
@@ -53,10 +55,12 @@ export function ProductCombobox({ onSelect }: ProductComboboxProps) {
                 <Button
                     variant="outline"
                     role="combobox"
+                    type="button"
                     aria-expanded={open}
+                    disabled={disabled}
                     className="w-full justify-between"
                 >
-                    {query ? query : "Ürün ara (Kod veya İsim)..."}
+                    {query ? query : placeholder}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>

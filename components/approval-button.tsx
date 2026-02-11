@@ -12,6 +12,7 @@ export function ApprovalButton({ productId }: { productId: number }) {
     const handleApprove = () => {
         startTransition(async () => {
             const res = await approveProduct(productId);
+
             if (res.error) {
                 toast.error(res.error);
             } else {

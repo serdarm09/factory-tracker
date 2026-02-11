@@ -7,7 +7,10 @@ const withPWA = withPWAInit({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  // output: 'standalone', // Prisma uyumluluk sorunu icin kapatildi
+  experimental: {
+    instrumentationHook: true, // Veritabani baslangic icin
+  },
 };
 
 export default withPWA(nextConfig);

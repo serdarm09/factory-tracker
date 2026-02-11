@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { toast } from "sonner";
 import { ExportButton } from "@/components/export-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowUpDown, Loader2, XCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowUpDown, Loader2, XCircle, Filter, X, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BarcodeDisplay from "@/components/barcode-display";
 import { revokeApproval } from "@/lib/actions";
@@ -38,6 +42,11 @@ type Product = {
     master?: string | null;
     creator?: { username: string } | null;
     order?: { company: string } | null;
+    // NetSim Açıklamaları
+    aciklama1?: string | null;
+    aciklama2?: string | null;
+    aciklama3?: string | null;
+    aciklama4?: string | null;
 };
 
 export function ApprovedTable({ products }: { products: Product[] }) {
@@ -47,9 +56,35 @@ export function ApprovedTable({ products }: { products: Product[] }) {
     });
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 25;
+    const [itemsPerPage, setItemsPerPage] = useState(25);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [isOpen, setIsOpen] = useState(false);
+
+    // Filter states
+    const [filterProduct, setFilterProduct] = useState("");
+    const [filterCompany, setFilterCompany] = useState("");
+    const [filterStatus, setFilterStatus] = useState("all");
+    const [filterBarcode, setFilterBarcode] = useState("");
+    const [filterPlanner, setFilterPlanner] = useState("");
+
+    // Get unique values for dropdowns
+    const uniqueCompanies = useMemo(() => {
+        const companies = new Set<string>();
+        products.forEach(p => {
+            const company = p.order?.company || p.company;
+            if (company) companies.add(company);
+        });
+        return Array.from(companies).sort();
+    }, [products]);
+
+    const uniquePlanners = useMemo(() => {
+        const planners = new Set<string>();
+        products.forEach(p => {
+            const planner = p.creator?.username;
+            if (planner) planners.add(planner);
+        });
+        return Array.from(planners).sort();
+    }, [products]);
 
     const handleRowClick = (product: Product) => {
         setSelectedProduct(product);
@@ -57,6 +92,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
     };
 
     const filteredProducts = products.filter(p => {
+        // Date range filter
         if (dateRange?.from) {
             const from = new Date(dateRange.from);
             from.setHours(0, 0, 0, 0);
@@ -64,16 +100,59 @@ export function ApprovedTable({ products }: { products: Product[] }) {
             const to = dateRange.to ? new Date(dateRange.to) : new Date(from);
             to.setHours(23, 59, 59, 999);
 
-            const current = new Date(p.terminDate); // Filtering Approval list by Termin Date as well, or maybe CreatedAt? Let's use Termin for consistency
-            // User might want to see approved items by Approval Date (createdAt usually tracks entry in this system).
-            // But usually "when is it due" is more important. Let's stick to Termin Date for now unless requested otherwise.
-            // Actually for "Approved" list, usually we care about "When was it approved?". But currently `createdAt` is creation date. 
-            // In Approvals page, these are "Active Approved". 
-            // Let's filter by TERMIN DATE.
-            return current >= from && current <= to;
+            const current = new Date(p.terminDate);
+            if (!(current >= from && current <= to)) return false;
         }
+
+        // Product name/model filter
+        if (filterProduct) {
+            const searchLower = filterProduct.toLowerCase();
+            const matchName = p.name?.toLowerCase().includes(searchLower);
+            const matchModel = p.model?.toLowerCase().includes(searchLower);
+            const matchCode = p.systemCode?.toLowerCase().includes(searchLower);
+            if (!matchName && !matchModel && !matchCode) return false;
+        }
+
+        // Company filter
+        if (filterCompany) {
+            const company = p.order?.company || p.company || "";
+            if (company !== filterCompany) return false;
+        }
+
+        // Status filter
+        if (filterStatus !== "all") {
+            if (p.status !== filterStatus) return false;
+        }
+
+        // Barcode filter
+        if (filterBarcode) {
+            const barcode = p.barcode || "";
+            if (!barcode.toLowerCase().includes(filterBarcode.toLowerCase())) return false;
+        }
+
+        // Planner filter
+        if (filterPlanner) {
+            const planner = p.creator?.username || "";
+            if (planner !== filterPlanner) return false;
+        }
+
         return true;
     });
+
+    // Check if any filter is active
+    const hasActiveFilters = filterProduct || filterCompany || filterStatus !== "all" ||
+        filterBarcode || filterPlanner || dateRange?.from;
+
+    // Clear all filters
+    const clearFilters = () => {
+        setFilterProduct("");
+        setFilterCompany("");
+        setFilterStatus("all");
+        setFilterBarcode("");
+        setFilterPlanner("");
+        setDateRange(undefined);
+        setCurrentPage(1);
+    };
 
     const sortedProducts = [...filteredProducts].sort((a, b) => {
         if (!sortConfig.key) return 0;
@@ -106,6 +185,11 @@ export function ApprovedTable({ products }: { products: Product[] }) {
         setCurrentPage(1);
     };
 
+    // Reset page when text filters change
+    useMemo(() => {
+        setCurrentPage(1);
+    }, [filterProduct, filterCompany, filterStatus, filterBarcode, filterPlanner]);
+
     const requestSort = (key: keyof Product) => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -125,37 +209,184 @@ export function ApprovedTable({ products }: { products: Product[] }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end gap-2">
-                <div className="relative">
-                    <DateRangeFilter date={dateRange} setDate={handleDateRangeChange} />
-                    {dateRange?.from && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
-                            onClick={() => setDateRange(undefined)}
-                        >
-                            <span className="sr-only">Temizle</span>
-                            <span className="text-xs">✕</span>
-                        </Button>
+            {/* Filter Card */}
+            <Card>
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <Filter className="h-5 w-5" />
+                            Filtreler
+                        </CardTitle>
+                        {hasActiveFilters && (
+                            <Button variant="ghost" size="sm" onClick={clearFilters}>
+                                <X className="h-4 w-4 mr-1" />
+                                Temizle
+                            </Button>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                        {/* Product Search */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Urun Ara</label>
+                            <div className="relative">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Ad, model, kod..."
+                                    value={filterProduct}
+                                    onChange={(e) => setFilterProduct(e.target.value)}
+                                    className="pl-8 h-9"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Company Filter */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Firma</label>
+                            <Select value={filterCompany} onValueChange={(v) => setFilterCompany(v === "all" ? "" : v)}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Tum firmalar" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tum firmalar</SelectItem>
+                                    {uniqueCompanies.map(company => (
+                                        <SelectItem key={company} value={company}>{company}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Planner Filter */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Planlayan</label>
+                            <Select value={filterPlanner} onValueChange={(v) => setFilterPlanner(v === "all" ? "" : v)}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Tum planlayanlar" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tum planlayanlar</SelectItem>
+                                    {uniquePlanners.map(planner => (
+                                        <SelectItem key={planner} value={planner}>{planner}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Status Filter */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Durum</label>
+                            <Select value={filterStatus} onValueChange={setFilterStatus}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Tum durumlar" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tum Durumlar</SelectItem>
+                                    <SelectItem value="APPROVED">Onayli (Uretimde)</SelectItem>
+                                    <SelectItem value="COMPLETED">Tamamlandi</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Barcode Search */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Barkod</label>
+                            <Input
+                                placeholder="Barkod ara..."
+                                value={filterBarcode}
+                                onChange={(e) => setFilterBarcode(e.target.value)}
+                                className="h-9"
+                            />
+                        </div>
+
+                        {/* Date Range Filter */}
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Termin Tarihi</label>
+                            <div className="relative">
+                                <DateRangeFilter date={dateRange} setDate={handleDateRangeChange} />
+                                {dateRange?.from && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute -right-1 -top-1 h-4 w-4 bg-slate-200 rounded-full hover:bg-red-100 hover:text-red-600"
+                                        onClick={() => setDateRange(undefined)}
+                                    >
+                                        <span className="sr-only">Temizle</span>
+                                        <X className="h-3 w-3" />
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Active Filters Summary */}
+                    {hasActiveFilters && (
+                        <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t">
+                            <span className="text-sm text-muted-foreground">Aktif filtreler:</span>
+                            {filterProduct && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Ürün: {filterProduct}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterProduct("")} />
+                                </Badge>
+                            )}
+                            {filterCompany && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Firma: {filterCompany}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterCompany("")} />
+                                </Badge>
+                            )}
+                            {filterPlanner && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Planlayan: {filterPlanner}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterPlanner("")} />
+                                </Badge>
+                            )}
+                            {filterStatus !== "all" && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Durum: {filterStatus === "APPROVED" ? "Onaylı" : "Tamamlandı"}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterStatus("all")} />
+                                </Badge>
+                            )}
+                            {filterBarcode && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Barkod: {filterBarcode}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterBarcode("")} />
+                                </Badge>
+                            )}
+                            {dateRange?.from && (
+                                <Badge variant="secondary" className="flex items-center gap-1">
+                                    Termin: {format(dateRange.from, "dd.MM.yyyy")} {dateRange.to ? `- ${format(dateRange.to, "dd.MM.yyyy")}` : ""}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setDateRange(undefined)} />
+                                </Badge>
+                            )}
+                            <span className="text-sm font-medium ml-auto">
+                                {filteredProducts.length} / {products.length} kayıt
+                            </span>
+                        </div>
                     )}
-                </div>
+                </CardContent>
+            </Card>
+
+            {/* Export Button */}
+            <div className="flex justify-end">
                 <ExportButton
                     data={sortedProducts.map(p => ({
-                        "Ürün Adı": p.name,
+                        "Urun Adi": p.name,
                         "Model": p.model,
                         "Firma": p.company,
                         "Malzeme": p.material,
-                        "Açıklama": p.description,
-                        "Giriş Tarihi": new Date(p.createdAt).toLocaleDateString('tr-TR'),
+                        "Aciklama": p.description,
+                        "Planlayan": p.creator?.username || "-",
+                        "Giris Tarihi": new Date(p.createdAt).toLocaleDateString('tr-TR'),
                         "Termin Tarihi": new Date(p.terminDate).toLocaleDateString('tr-TR'),
-                        "Kullanılan Barkod": p.barcode,
-                        "Durum": p.status
+                        "Kullanilan Barkod": p.barcode,
+                        "Durum": p.status === 'COMPLETED' ? 'Tamamlandi' : 'Onayli'
                     }))}
                     filename="onaylanan-urunler"
-                    label="Listeyi İndir"
+                    label="Listeyi Indir"
                 />
             </div>
+            <div className="overflow-x-auto">
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -219,11 +450,12 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                     ))}
                     {paginatedProducts.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henüz onaylanan ürün yok.</TableCell>
+                            <TableCell colSpan={9} className="text-center py-4 text-slate-500">Henuz onaylanan urun yok.</TableCell>
                         </TableRow>
                     )}
                 </TableBody>
             </Table>
+            </div>
             <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -279,7 +511,7 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                                     <Detail label="Ayak Modeli" value={selectedProduct.footType} />
                                     <Detail label="Ayak Özelliği" value={selectedProduct.footMaterial} />
                                     <Detail label="Kol Modeli" value={selectedProduct.armType} />
-                                    <Detail label="Sırt Modeli" value={selectedProduct.backType} />
+                                    <Detail label="Sünger" value={selectedProduct.backType} />
                                     <Detail label="Kumaş Türü" value={selectedProduct.fabricType} />
                                     <Detail label="Malzeme Detayı" value={selectedProduct.material} />
                                 </Section>
@@ -296,6 +528,35 @@ export function ApprovedTable({ products }: { products: Product[] }) {
                                     {selectedProduct.description || "Açıklama yok."}
                                 </div>
                             </div>
+
+                            {/* NetSim Açıklamaları */}
+                            {(selectedProduct.aciklama1 || selectedProduct.aciklama2 || selectedProduct.aciklama3 || selectedProduct.aciklama4) && (
+                                <div className="col-span-full border-t pt-4">
+                                    <h4 className="font-semibold mb-2 text-amber-700">NetSim Açıklamaları</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {selectedProduct.aciklama1 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 1:</span> {selectedProduct.aciklama1}
+                                            </div>
+                                        )}
+                                        {selectedProduct.aciklama2 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 2:</span> {selectedProduct.aciklama2}
+                                            </div>
+                                        )}
+                                        {selectedProduct.aciklama3 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 3:</span> {selectedProduct.aciklama3}
+                                            </div>
+                                        )}
+                                        {selectedProduct.aciklama4 && (
+                                            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 text-sm">
+                                                <span className="font-medium text-amber-800">Açıklama 4:</span> {selectedProduct.aciklama4}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {selectedProduct.barcode && (
                                 <div className="col-span-full border-t pt-4">

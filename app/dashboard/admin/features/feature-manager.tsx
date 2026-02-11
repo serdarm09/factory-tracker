@@ -20,7 +20,7 @@ const CATEGORIES: { key: FeatureCategory; label: string }[] = [
     { key: "FOOT_TYPE", label: "Ayak Modeli" },
     { key: "FOOT_MATERIAL", label: "Ayak Özelliği (Materyal)" },
     { key: "ARM_TYPE", label: "Kol Modeli" },
-    { key: "BACK_TYPE", label: "Sırt Modeli" },
+    { key: "BACK_TYPE", label: "Sünger" },
     { key: "FABRIC_TYPE", label: "Kumaş Türü" },
     { key: "MATERIAL", label: "Malzeme Detayı" },
     { key: "MODEL", label: "Model" },

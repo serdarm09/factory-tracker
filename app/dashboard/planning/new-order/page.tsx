@@ -354,7 +354,7 @@ export default function NewOrderPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Sırt Modeli</Label>
+                                <Label>Sünger</Label>
                                 <Select onValueChange={v => updateCurrentItem('backType', v)} value={currentItem.backType}>
                                     <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
                                     <SelectContent>

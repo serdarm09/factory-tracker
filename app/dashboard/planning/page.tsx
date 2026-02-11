@@ -2,6 +2,7 @@
 
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AutoRefresh } from "@/components/auto-refresh";
 import Link from "next/link";
@@ -10,12 +11,24 @@ import { PlanningProductList } from "@/components/planning-product-list";
 
 export default async function PlanningPage() {
     const session = await auth();
+    if (!session) redirect("/login");
+
+    const role = (session.user as any).role;
+    // Sadece ADMIN ve PLANNER erişebilir
+    if (!["ADMIN", "PLANNER"].includes(role)) {
+        redirect("/dashboard");
+    }
 
     // Fetch Orders that have products (or all?).
     // We want to show Active orders (not completed/cancelled maybe? or all).
     // Let's show all for now, ordered by date.
     const orders = await prisma.order.findMany({
         orderBy: { createdAt: 'desc' },
+        where: {
+            products: {
+                some: {} // Sadece en az 1 ürünü olan siparişleri getir
+            }
+        },
         include: {
             products: {
                 include: {
@@ -43,8 +56,8 @@ export default async function PlanningPage() {
     // User said: "admin onay verirse üretime geçilecek".
     // So this page is for Admin/Planner.
 
-    const isViewer = (session?.user as any).role === 'VIEWER';
-    const isAdmin = (session?.user as any).role === 'ADMIN';
+    const isViewer = role === 'VIEWER';
+    const isAdmin = role === 'ADMIN';
 
     return (
         <div className="space-y-8">
@@ -64,7 +77,7 @@ export default async function PlanningPage() {
             <PlanningProductList
                 orders={orders}
                 legacyProducts={legacyProducts}
-                userRole={(session?.user as any).role}
+                userRole={role}
             />
         </div>
     );

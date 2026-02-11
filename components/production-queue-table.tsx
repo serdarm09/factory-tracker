@@ -1,18 +1,24 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useMemo, useTransition } from "react";
 import Image from "next/image";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Printer } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Printer, Search, X, Filter, Building2, Clock, AlertTriangle, CheckCircle, Package, Warehouse, Loader2 } from "lucide-react";
 import BarcodeDisplay from "@/components/barcode-display";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { translateStatus } from "@/lib/translations";
 import { ProductImage } from "@/components/product-image";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { transferToWarehouse } from "@/lib/actions";
+import { toast } from "sonner";
 
 type Product = {
     id: number;
@@ -21,6 +27,9 @@ type Product = {
     company: string | null;
     quantity: number;
     produced: number;
+    packagedQty?: number;
+    storedQty?: number;
+    shippedQty?: number;
     status: string;
     systemCode: string;
     barcode: string;
@@ -38,23 +47,198 @@ type Product = {
     armType?: string | null;
     backType?: string | null;
     fabricType?: string | null;
+    // NetSim Açıklamaları
+    aciklama1?: string | null;
+    aciklama2?: string | null;
+    aciklama3?: string | null;
+    aciklama4?: string | null;
+    order?: { company: string } | null;
 };
+
+// Depoya Giriş Dialog
+function TransferToWarehouseDialog({ product }: { product: Product }) {
+    const [open, setOpen] = useState(false);
+    const [quantity, setQuantity] = useState("");
+    const [shelf, setShelf] = useState("");
+    const [isPending, startTransition] = useTransition();
+
+    const packagedQty = product.packagedQty || 0;
+
+    const handleTransfer = () => {
+        if (!quantity || parseInt(quantity) <= 0) {
+            toast.error("Geçerli bir miktar girin");
+            return;
+        }
+
+        startTransition(async () => {
+            const result = await transferToWarehouse({
+                productId: product.id,
+                quantity: parseInt(quantity),
+                shelf: shelf || undefined
+            });
+
+            if (result.error) {
+                toast.error(result.error);
+            } else {
+                toast.success(`${quantity} adet depoya alındı`);
+                setOpen(false);
+                setQuantity("");
+                setShelf("");
+            }
+        });
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <Warehouse className="h-4 w-4" />
+                    Depoya Al
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md" onClick={(e) => e.stopPropagation()}>
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Warehouse className="h-5 w-5 text-green-600" />
+                        Depoya Giriş
+                    </DialogTitle>
+                    <DialogDescription>
+                        {product.name} - Paketlenen: <span className="font-bold text-blue-600">{packagedQty}</span> adet
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                        <Label>Depoya Alınacak Adet *</Label>
+                        <Input
+                            type="number"
+                            value={quantity}
+                            onChange={(e) => setQuantity(e.target.value)}
+                            min={1}
+                            max={packagedQty}
+                            placeholder={`Max: ${packagedQty}`}
+                            className="text-lg font-bold"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Raf / Konum (Opsiyonel)</Label>
+                        <Input
+                            value={shelf}
+                            onChange={(e) => setShelf(e.target.value)}
+                            placeholder="ör. A-12"
+                        />
+                    </div>
+                </div>
+                <DialogFooter className="pt-4">
+                    <Button variant="outline" onClick={() => setOpen(false)}>
+                        İptal
+                    </Button>
+                    <Button
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={handleTransfer}
+                        disabled={isPending || !quantity || parseInt(quantity) <= 0}
+                    >
+                        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Depoya Al
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 export function ProductionQueueTable({ products }: { products: Product[] }) {
     const [search, setSearch] = useState("");
     const [scannedBarcode, setScannedBarcode] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
+    const [sortField, setSortField] = useState<'orderDate' | 'terminDate' | 'name' | 'company'>('orderDate');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+    // Yeni filtreler
+    const [filterCompany, setFilterCompany] = useState("");
+    const [filterStatus, setFilterStatus] = useState("all");
+    const [filterTerminStatus, setFilterTerminStatus] = useState("all"); // all, late, thisWeek, thisMonth
+    const [showFilters, setShowFilters] = useState(false);
+
     const itemsPerPage = 50;
+
+    // Unique companies - order.company veya company'den al
+    const uniqueCompanies = useMemo(() => {
+        const companies = new Set<string>();
+        products.forEach(p => {
+            const company = p.order?.company || p.company;
+            if (company) companies.add(company);
+        });
+        return Array.from(companies).sort();
+    }, [products]);
+
+    // Unique statuses
+    const uniqueStatuses = useMemo(() => {
+        const statuses = new Set<string>();
+        products.forEach(p => { if (p.status) statuses.add(p.status); });
+        return Array.from(statuses);
+    }, [products]);
+
+    const handleSort = (field: 'orderDate' | 'terminDate' | 'name' | 'company') => {
+        if (sortField === field) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('desc');
+        }
+    };
+
+    // Termin durumu kontrolleri
+    const isLate = (terminDate: string) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return new Date(terminDate) < today;
+    };
+
+    const isThisWeek = (terminDate: string) => {
+        const today = new Date();
+        const weekEnd = new Date(today);
+        weekEnd.setDate(today.getDate() + 7);
+        const termin = new Date(terminDate);
+        return termin >= today && termin <= weekEnd;
+    };
+
+    const isThisMonth = (terminDate: string) => {
+        const today = new Date();
+        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const termin = new Date(terminDate);
+        return termin >= today && termin <= monthEnd;
+    };
 
     const filtered = products.filter(p => {
         const searchLower = search.toLowerCase();
+        const company = p.order?.company || p.company;
         const matchesSearch =
             p.name.toLowerCase().includes(searchLower) ||
             p.model.toLowerCase().includes(searchLower) ||
-            (p.company && p.company.toLowerCase().includes(searchLower)) ||
-            p.barcode.toLowerCase().includes(searchLower) ||
+            (company && company.toLowerCase().includes(searchLower)) ||
+            (p.barcode && p.barcode.toLowerCase().includes(searchLower)) ||
             p.systemCode.toLowerCase().includes(searchLower);
+
+        // Firma filtresi
+        const matchesCompany = !filterCompany || company === filterCompany;
+
+        // Durum filtresi
+        const matchesStatus = filterStatus === "all" || p.status === filterStatus;
+
+        // Termin durumu filtresi
+        let matchesTerminStatus = true;
+        if (filterTerminStatus === "late") {
+            matchesTerminStatus = isLate(p.terminDate) && p.status !== 'COMPLETED';
+        } else if (filterTerminStatus === "thisWeek") {
+            matchesTerminStatus = isThisWeek(p.terminDate);
+        } else if (filterTerminStatus === "thisMonth") {
+            matchesTerminStatus = isThisMonth(p.terminDate);
+        }
 
         let matchesDateRequest = true;
         if (dateRange?.from) {
@@ -68,11 +252,70 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
             matchesDateRequest = current >= from && current <= to;
         }
 
-        return matchesSearch && matchesDateRequest;
+        return matchesSearch && matchesCompany && matchesStatus && matchesTerminStatus && matchesDateRequest;
+    }).sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        switch (sortField) {
+            case 'orderDate':
+                aValue = new Date(a.orderDate).getTime();
+                bValue = new Date(b.orderDate).getTime();
+                break;
+            case 'terminDate':
+                aValue = new Date(a.terminDate).getTime();
+                bValue = new Date(b.terminDate).getTime();
+                break;
+            case 'name':
+                aValue = a.name.toLowerCase();
+                bValue = b.name.toLowerCase();
+                break;
+            case 'company':
+                aValue = (a.company || '').toLowerCase();
+                bValue = (b.company || '').toLowerCase();
+                break;
+            default:
+                return 0;
+        }
+
+        if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
     });
 
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const paginatedProducts = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    // Aktif filtre sayısı
+    const activeFilterCount = [
+        filterCompany,
+        filterStatus !== "all",
+        filterTerminStatus !== "all",
+        dateRange?.from
+    ].filter(Boolean).length;
+
+    const clearAllFilters = () => {
+        setSearch("");
+        setScannedBarcode("");
+        setFilterCompany("");
+        setFilterStatus("all");
+        setFilterTerminStatus("all");
+        setDateRange(undefined);
+        setCurrentPage(1);
+    };
+
+    // Özet istatistikler - Paketlenmiş ürünler için
+    const stats = useMemo(() => {
+        const late = products.filter(p => isLate(p.terminDate) && p.status !== 'COMPLETED').length;
+        const thisWeek = products.filter(p => isThisWeek(p.terminDate)).length;
+        const totalPackaged = products.reduce((sum, p) => sum + (p.packagedQty || 0), 0);
+        return { late, thisWeek, totalPackaged, total: products.length };
+    }, [products]);
+
+    const SortIcon = ({ field }: { field: string }) => {
+        if (sortField !== field) return <span className="ml-1 text-slate-300">↕</span>;
+        return <span className="ml-1 text-blue-500">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
+    };
 
     const handlePrint = (p: Product) => {
         const printContent = `
@@ -88,12 +331,15 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                         .label { font-weight: bold; }
                         .barcode-box { margin: 30px 0; border: 1px dashed #ccc; padding: 20px; display: inline-block; }
                         .footer { margin-top: 50px; font-size: 12px; color: #999; }
+                        .notes { text-align: left; margin: 20px auto; width: 80%; background: #fffbeb; border: 1px solid #fbbf24; padding: 15px; border-radius: 8px; }
+                        .notes h3 { font-size: 14px; color: #92400e; margin: 0 0 10px 0; }
+                        .note-item { background: white; padding: 8px; margin: 5px 0; border-radius: 4px; font-size: 14px; }
                     </style>
                 </head>
                 <body>
                     <h1>${p.company || 'Firma Yok'}</h1>
                     <h2>${p.model} - ${p.name}</h2>
-                    
+
                     <div class="info">
                         <div class="row">
                             <span class="label">Ürün Kodu</span>
@@ -116,6 +362,16 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                             <span>${p.fabricType || '-'}</span>
                         </div>
                     </div>
+
+                    ${(p.aciklama1 || p.aciklama2 || p.aciklama3 || p.aciklama4) ? `
+                    <div class="notes">
+                        <h3>Sipariş Notları</h3>
+                        ${p.aciklama1 ? `<div class="note-item"><strong>1:</strong> ${p.aciklama1}</div>` : ''}
+                        ${p.aciklama2 ? `<div class="note-item"><strong>2:</strong> ${p.aciklama2}</div>` : ''}
+                        ${p.aciklama3 ? `<div class="note-item"><strong>3:</strong> ${p.aciklama3}</div>` : ''}
+                        ${p.aciklama4 ? `<div class="note-item"><strong>4:</strong> ${p.aciklama4}</div>` : ''}
+                    </div>
+                    ` : ''}
 
                     <div class="barcode-box">
                         <div style="font-family: 'Courier New', monospace; font-size: 40px; letter-spacing: 5px; font-weight: bold;">
@@ -145,44 +401,218 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center gap-2">
-                <Input
-                    placeholder="Ara: Ürün, Model, Firma, Barkod..."
-                    value={search}
-                    onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                    className="max-w-sm"
-                />
-                <Input
-                    placeholder="Barkod Okut..."
-                    value={scannedBarcode}
-                    onChange={(e) => { setScannedBarcode(e.target.value); setCurrentPage(1); }}
-                    className="max-w-sm ml-2"
-                />
-                <div className="relative ml-2">
-                    <DateRangeFilter date={dateRange} setDate={setDateRange} />
-                    {dateRange?.from && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
-                            onClick={() => setDateRange(undefined)}
-                        >
-                            <span className="sr-only">Temizle</span>
-                            <span className="text-xs">✕</span>
-                        </Button>
-                    )}
+            {/* Özet Kartları */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button
+                    onClick={() => { setFilterTerminStatus("all"); setFilterStatus("all"); setCurrentPage(1); }}
+                    className={`p-3 rounded-lg border text-left transition-all ${filterTerminStatus === "all" && filterStatus === "all" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white hover:bg-slate-50"}`}
+                >
+                    <div className="text-xs text-slate-500">Toplam Ürün</div>
+                    <div className="text-2xl font-bold">{stats.total}</div>
+                </button>
+                <div className="p-3 rounded-lg border bg-blue-50 relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <Package className="h-16 w-16 text-blue-600" />
+                    </div>
+                    <div className="text-xs text-blue-600 flex items-center gap-1 font-semibold">
+                        <Package className="h-3 w-3" /> Depoya Hazır
+                    </div>
+                    <div className="text-2xl font-bold text-blue-600">{stats.totalPackaged} <span className="text-xs font-normal text-blue-500">adet</span></div>
                 </div>
+                <button
+                    onClick={() => { setFilterTerminStatus("late"); setFilterStatus("all"); setCurrentPage(1); }}
+                    className={`p-3 rounded-lg border text-left transition-all ${filterTerminStatus === "late" ? "ring-2 ring-red-500 bg-red-50" : "bg-white hover:bg-slate-50"}`}
+                >
+                    <div className="text-xs text-red-600 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Geciken
+                    </div>
+                    <div className="text-2xl font-bold text-red-600">{stats.late}</div>
+                </button>
+                <button
+                    onClick={() => { setFilterTerminStatus("thisWeek"); setFilterStatus("all"); setCurrentPage(1); }}
+                    className={`p-3 rounded-lg border text-left transition-all ${filterTerminStatus === "thisWeek" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white hover:bg-slate-50"}`}
+                >
+                    <div className="text-xs text-amber-600 flex items-center gap-1">
+                        <Clock className="h-3 w-3" /> Bu Hafta Termin
+                    </div>
+                    <div className="text-2xl font-bold text-amber-600">{stats.thisWeek}</div>
+                </button>
             </div>
+
+            {/* AI Insights Summary */}
+            {(stats.late > 0 || stats.totalPackaged > 0) && (
+                <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-lg p-3 flex items-start gap-3 shadow-sm">
+                    <div className="bg-white p-2 rounded-full shadow-sm mt-0.5">
+                        <span className="text-lg">✨</span>
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-bold text-violet-800 flex items-center gap-2">
+                            Yapay Zeka Analizi
+                        </h4>
+                        <div className="text-xs text-violet-700 mt-1 space-y-1">
+                            {stats.late > 0 && (
+                                <p>⚠️ <strong>Dikkat:</strong> {stats.late} adet ürünün termini gecikmiş durumda. Öncelikli olarak depoya alınmaları önerilir.</p>
+                            )}
+                            {stats.totalPackaged > 0 && (
+                                <p>📦 <strong>İşlem Bekleyen:</strong> {stats.totalPackaged} adet ürün paketlenmiş ve depoya giriş yapmaya hazır.</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Filtreler */}
+            <Card>
+                <CardContent className="pt-4">
+                    <div className="space-y-3">
+                        {/* Üst satır - Arama ve toggle */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Ara: Ürün, Model, Firma, Barkod..."
+                                    value={search}
+                                    onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                                    className="pl-9"
+                                />
+                            </div>
+                            <Button
+                                variant={showFilters ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setShowFilters(!showFilters)}
+                                className="gap-1"
+                            >
+                                <Filter className="h-4 w-4" />
+                                Filtreler
+                                {activeFilterCount > 0 && (
+                                    <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 justify-center">
+                                        {activeFilterCount}
+                                    </Badge>
+                                )}
+                            </Button>
+                            {activeFilterCount > 0 && (
+                                <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                                    <X className="h-4 w-4 mr-1" /> Temizle
+                                </Button>
+                            )}
+                        </div>
+
+                        {/* Genişletilmiş filtreler */}
+                        {showFilters && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t">
+                                {/* Firma */}
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 mb-1 block">Firma</label>
+                                    <Select value={filterCompany} onValueChange={(v) => { setFilterCompany(v === "all" ? "" : v); setCurrentPage(1); }}>
+                                        <SelectTrigger>
+                                            <div className="flex items-center gap-2">
+                                                <Building2 className="h-4 w-4 text-slate-400" />
+                                                <SelectValue placeholder="Tüm Firmalar" />
+                                            </div>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Tüm Firmalar</SelectItem>
+                                            {uniqueCompanies.map(c => (
+                                                <SelectItem key={c} value={c}>{c}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Durum */}
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 mb-1 block">Durum</label>
+                                    <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setCurrentPage(1); }}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Tüm Durumlar" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Tüm Durumlar</SelectItem>
+                                            {uniqueStatuses.map(s => (
+                                                <SelectItem key={s} value={s}>{translateStatus(s)}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Termin Durumu */}
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 mb-1 block">Termin Durumu</label>
+                                    <Select value={filterTerminStatus} onValueChange={(v) => { setFilterTerminStatus(v); setCurrentPage(1); }}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Tümü" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Tümü</SelectItem>
+                                            <SelectItem value="late">
+                                                <span className="text-red-600">Gecikmiş</span>
+                                            </SelectItem>
+                                            <SelectItem value="thisWeek">
+                                                <span className="text-amber-600">Bu Hafta</span>
+                                            </SelectItem>
+                                            <SelectItem value="thisMonth">
+                                                <span className="text-blue-600">Bu Ay</span>
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Tarih Aralığı */}
+                                <div>
+                                    <label className="text-xs font-medium text-slate-500 mb-1 block">Termin Tarihi</label>
+                                    <div className="relative">
+                                        <DateRangeFilter date={dateRange} setDate={setDateRange} />
+                                        {dateRange?.from && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute -right-2 -top-2 h-5 w-5 bg-slate-100 rounded-full border shadow-sm hover:bg-red-100 hover:text-red-600"
+                                                onClick={() => setDateRange(undefined)}
+                                            >
+                                                <span className="sr-only">Temizle</span>
+                                                <span className="text-xs">✕</span>
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Sonuç bilgisi */}
+                        <div className="flex items-center justify-between text-sm text-slate-500 pt-2">
+                            <span>
+                                {filtered.length} sonuç bulundu
+                                {activeFilterCount > 0 && ` (${activeFilterCount} filtre aktif)`}
+                            </span>
+                            <span className="text-xs">
+                                Sayfa {currentPage} / {totalPages || 1}
+                            </span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
 
             <div className="rounded-md border bg-white">
                 <Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[50px]"></TableHead>
-                            <TableHead>Ürün</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('name')}>
+                                Ürün <SortIcon field="name" />
+                            </TableHead>
                             <TableHead>Model</TableHead>
-                            <TableHead>Firma</TableHead>
-                            <TableHead>Termin</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('company')}>
+                                Firma <SortIcon field="company" />
+                            </TableHead>
+                            <TableHead>
+                                <div className="flex items-center gap-1">
+                                    <Package className="h-4 w-4 text-blue-500" />
+                                    Paketlenen
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('terminDate')}>
+                                Termin <SortIcon field="terminDate" />
+                            </TableHead>
                             <TableHead>Barkod</TableHead>
                             <TableHead className="text-right">İşlem</TableHead>
                         </TableRow>
@@ -206,7 +636,13 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                             <div className="text-xs text-slate-400">{p.systemCode}</div>
                                         </TableCell>
                                         <TableCell>{p.model}</TableCell>
-                                        <TableCell>{p.company || '-'}</TableCell>
+                                        <TableCell>{p.order?.company || p.company || '-'}</TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-1">
+                                                <Package className="h-4 w-4 text-blue-500" />
+                                                <span className="font-bold text-blue-600">{p.packagedQty || 0}</span>
+                                            </div>
+                                        </TableCell>
                                         <TableCell className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'text-red-700 font-bold' :
                                             new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-700 font-bold' :
                                                 'text-slate-700 font-mono'
@@ -215,14 +651,16 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                         </TableCell>
                                         <TableCell>
                                             <div className="w-full">
-                                                <BarcodeDisplay value={p.barcode} />
+                                                {p.barcode ? <BarcodeDisplay value={p.barcode} /> : '-'}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePrint(p); }}>
-                                                <Printer className="w-4 h-4 mr-2" />
-                                                Yazdır
-                                            </Button>
+                                            <div className="flex items-center gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                                                <TransferToWarehouseDialog product={p} />
+                                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePrint(p); }}>
+                                                    <Printer className="w-4 h-4" />
+                                                </Button>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 </DialogTrigger>
@@ -329,7 +767,7 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                                             <span className="font-medium">{p.armType || '-'}</span>
                                                         </div>
                                                         <div>
-                                                            <span className="text-xs text-slate-500 block">Sırt Tipi</span>
+                                                            <span className="text-xs text-slate-500 block">Sünger</span>
                                                             <span className="font-medium">{p.backType || '-'}</span>
                                                         </div>
                                                         <div className="col-span-2">
@@ -394,6 +832,35 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                                         {p.description || 'Açıklama yok.'}
                                                     </div>
                                                 </div>
+
+                                                {/* NetSim Açıklamaları */}
+                                                {(p.aciklama1 || p.aciklama2 || p.aciklama3 || p.aciklama4) && (
+                                                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                                                        <h4 className="font-semibold text-sm text-amber-800 mb-2">Sipariş Notları (NetSim)</h4>
+                                                        <div className="space-y-1 text-sm">
+                                                            {p.aciklama1 && (
+                                                                <div className="bg-white p-2 rounded border border-amber-100">
+                                                                    <span className="font-medium text-amber-700">1:</span> {p.aciklama1}
+                                                                </div>
+                                                            )}
+                                                            {p.aciklama2 && (
+                                                                <div className="bg-white p-2 rounded border border-amber-100">
+                                                                    <span className="font-medium text-amber-700">2:</span> {p.aciklama2}
+                                                                </div>
+                                                            )}
+                                                            {p.aciklama3 && (
+                                                                <div className="bg-white p-2 rounded border border-amber-100">
+                                                                    <span className="font-medium text-amber-700">3:</span> {p.aciklama3}
+                                                                </div>
+                                                            )}
+                                                            {p.aciklama4 && (
+                                                                <div className="bg-white p-2 rounded border border-amber-100">
+                                                                    <span className="font-medium text-amber-700">4:</span> {p.aciklama4}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </ScrollArea>

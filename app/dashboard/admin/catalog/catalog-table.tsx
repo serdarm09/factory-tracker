@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { EditCatalogDialog } from "@/components/edit-catalog-dialog";
+import { ViewCatalogDetailsDialog } from "@/components/view-catalog-details-dialog";
 import { deleteFromCatalog } from "@/lib/catalog-actions";
 import { toast } from "sonner";
 
@@ -77,6 +78,7 @@ export function CatalogTable({ products }: CatalogTableProps) {
                             </TableCell>
                             <TableCell className="text-right">
                                 <div className="flex justify-end gap-2">
+                                    <ViewCatalogDetailsDialog product={product} />
                                     <EditCatalogDialog product={product} />
                                     <Button
                                         variant="ghost"

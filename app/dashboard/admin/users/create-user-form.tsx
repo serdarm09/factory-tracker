@@ -37,9 +37,12 @@ export function UserCreateForm() {
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Rol</label>
                         <select name="role" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                            <option value="VIEWER">VIEWER (Pazarlama/İzleyici)</option>
+                            <option value="VIEWER">VIEWER (İzleyici)</option>
                             <option value="PLANNER">PLANNER (Planlamacı)</option>
-                            <option value="WORKER">WORKER (Depo/Üretim)</option>
+                            <option value="ENGINEER">ENGINEER (Üretim Mühendisi)</option>
+                            <option value="MARKETER">MARKETER (Pazarlamacı)</option>
+                            <option value="WAREHOUSE">WAREHOUSE (Depo Sorumlusu)</option>
+                            <option value="WORKER">WORKER (Sevkiyatçı)</option>
                             <option value="ADMIN">ADMIN (Yönetici)</option>
                         </select>
                     </div>
