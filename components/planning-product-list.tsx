@@ -599,7 +599,16 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
                         <img src={getImage(product)} alt="" className="w-full h-full object-contain" onError={(e) => (e.currentTarget.src = '/placeholder.png')} />
                     </div>
                     <div>
-                        <div className="font-medium">{product.name}</div>
+                        {product.catalogProduct ? (
+                            <>
+                                <div className="text-[10px] text-slate-500 uppercase font-medium">NetSim:</div>
+                                <div className="text-xs text-slate-600 mb-1">{product.name}</div>
+                                <div className="text-[10px] text-green-600 uppercase font-medium">Katalog:</div>
+                                <div className="font-medium text-green-700">{product.catalogProduct.name}</div>
+                            </>
+                        ) : (
+                            <div className="font-medium">{product.name}</div>
+                        )}
                         <div className="text-xs text-slate-500">{product.systemCode} | {product.model}</div>
                     </div>
                 </div>

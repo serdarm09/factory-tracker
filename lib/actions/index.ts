@@ -67,6 +67,16 @@ export {
     updateSemiFinishedStock
 } from './semi-finished-actions';
 
+// Semi-finished production actions
+export {
+    sendToSemiFinishedProduction,
+    getSemiFinishedProductionByCategory,
+    updateSemiFinishedProductionQty,
+    removeSemiFinishedProduction,
+    getSemiFinishedProductionSummary,
+    addManualSemiFinishedProduction
+} from './semi-finished-production-actions';
+
 // Notification actions
 export {
     getNotifications,

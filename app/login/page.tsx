@@ -45,7 +45,7 @@ export default function LoginPage() {
         <div className="flex h-screen w-full items-center justify-center bg-gray-50">
             <Card className="w-full max-w-sm shadow-lg">
                 <CardHeader className="text-center">
-                    <CardTitle className="text-2xl font-bold">MariSit CRM</CardTitle>
+                    <CardTitle className="text-2xl font-bold">Marisit ERP</CardTitle>
                     <p className="text-sm text-gray-500">Hesabınıza giriş yapın</p>
                 </CardHeader>
                 <form onSubmit={handleSubmit}>

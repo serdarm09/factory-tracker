@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { updateProduct, getMasters, shipProduct } from "@/lib/actions";
-import { Pencil, Plus, Truck } from "lucide-react";
+import { Pencil, Plus, Truck, Printer } from "lucide-react";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
@@ -19,6 +19,7 @@ import { ProductImage } from "@/components/product-image";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect } from "react";
 import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
+import { BarcodeLabelPrint } from "@/components/barcode-label-print";
 import { Pagination } from "@/components/ui/pagination";
 
 
@@ -105,6 +106,14 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Ürün Düzenle: {product.name}</DialogTitle>
+                    {product.barcode && (
+                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-blue-700">Barkod:</span>
+                                <span className="text-lg font-bold text-blue-900 font-mono">{product.barcode}</span>
+                            </div>
+                        </div>
+                    )}
                 </DialogHeader>
                 <form action={clientAction} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -289,6 +298,39 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
                 </form>
             </DialogContent>
         </Dialog>
+    );
+}
+
+// Print Barcode Label Button
+function PrintLabelButton({ product }: { product: Product }) {
+    const [open, setOpen] = useState(false);
+
+    // Sadece barkodu olan ürünler için göster
+    if (!product.barcode) {
+        return null;
+    }
+
+    return (
+        <>
+            <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setOpen(true)}
+            >
+                <Printer className="h-4 w-4" />
+            </Button>
+            <BarcodeLabelPrint
+                open={open}
+                onOpenChange={setOpen}
+                product={{
+                    barcode: product.barcode,
+                    name: product.name,
+                    model: product.model,
+                    company: product.company
+                }}
+            />
+        </>
     );
 }
 
@@ -552,8 +594,9 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                 </TableCell>
                                 <TableCell>
                                     {role !== 'VIEWER' && role !== 'ENGINEER' && (
-                                        <div onClick={(e) => e.stopPropagation()}>
+                                        <div onClick={(e) => e.stopPropagation()} className="flex gap-2">
                                             <EditProductDialog product={p} role={role} />
+                                            <PrintLabelButton product={p} />
                                         </div>
                                     )}
                                 </TableCell>

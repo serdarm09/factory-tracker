@@ -15,13 +15,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { Calendar, Package, AlertTriangle, Building2, User, Send, ChevronLeft, ChevronRight, List, Users, CalendarIcon, Edit, Filter, Clock, Download, X, Wrench } from "lucide-react";
+import { Calendar, Package, AlertTriangle, Building2, User, Send, ChevronLeft, ChevronRight, List, Users, CalendarIcon, Edit, Filter, Clock, Download, X, Wrench, Factory } from "lucide-react";
 import { format, isBefore, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday, addMonths, subMonths, addWeeks, subWeeks, parseISO, startOfDay } from "date-fns";
 import { tr } from "date-fns/locale";
 import { sendProductsToProduction, updateProductionDate, updateProductStatus } from "@/lib/actions/product-actions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import * as XLSX from 'xlsx';
+import { SendToSemiFinishedDialog } from "./send-to-semi-finished-dialog";
 
 interface Product {
     id: number;
@@ -176,6 +177,7 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
     const [dateViewMode, setDateViewMode] = useState<'termin' | 'production'>('termin');
     const [isEditingStatus, setIsEditingStatus] = useState(false);
     const [editingStatus, setEditingStatus] = useState<string>("");
+    const [isSemiFinishedDialogOpen, setIsSemiFinishedDialogOpen] = useState(false);
 
     // Filtrelenmiş ürünler
     const filteredProducts = useMemo(() => {
@@ -983,7 +985,15 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                                 <label htmlFor="showOverdue" className="text-sm cursor-pointer flex items-center gap-1">
                                     <Clock className="h-3 w-3 text-red-600" />
                                     Geçikenler
-                                    <Badge variant="outline" className="ml-0.5 bg-red-50 text-red-600 border-red-200 text-xs px-1.5">
+                                    <Badge
+                                        variant="outline"
+                                        className="ml-0.5 bg-red-50 text-red-600 border-red-200 text-xs px-1.5 cursor-pointer hover:bg-red-100"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setShowOverdue(true);
+                                        }}
+                                    >
                                         {overdueCount}
                                     </Badge>
                                 </label>
@@ -1792,6 +1802,17 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                     <div className="h-6 w-px bg-slate-600" />
 
                     <Button
+                        onClick={() => setIsSemiFinishedDialogOpen(true)}
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                        <Factory className="h-4 w-4 mr-2" />
+                        Yarı Mamül Üretime Gönder
+                    </Button>
+
+                    <div className="h-6 w-px bg-slate-600" />
+
+                    <Button
                         onClick={handleExportSelected}
                         size="sm"
                         variant="ghost"
@@ -1826,6 +1847,18 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                     </Button>
                 </div>
             )}
+
+            {/* Yarı Mamül Üretime Gönderme Dialog */}
+            <SendToSemiFinishedDialog
+                open={isSemiFinishedDialogOpen}
+                onOpenChange={setIsSemiFinishedDialogOpen}
+                selectedProductIds={selectedProductIds}
+                products={filteredProducts}
+                onSuccess={() => {
+                    setSelectedProductIds([]);
+                    window.location.reload();
+                }}
+            />
         </div>
     );
 }

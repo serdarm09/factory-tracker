@@ -1,0 +1,6 @@
+@echo off
+echo Prisma Client yeniden olusturuluyor...
+npx prisma generate
+echo.
+echo TypeScript kontrolu yapiliyor...
+npm run build

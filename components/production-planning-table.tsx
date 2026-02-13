@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from "sonner";
 import { updateProductStages } from "@/lib/actions";
-import { X, Search, ArrowUpDown, Truck, Package, Wrench, CheckCircle, Clock, AlertTriangle, MessageSquare, Sofa, Hammer, BoxIcon, TrendingUp, Warehouse, Info, Edit2, Save, Users, List, Download, FileSpreadsheet } from "lucide-react";
+import { X, Search, ArrowUpDown, Truck, Package, Wrench, CheckCircle, Clock, AlertTriangle, MessageSquare, Sofa, Hammer, BoxIcon, TrendingUp, Warehouse, Info, Edit2, Save, Users, List, Download, FileSpreadsheet, Factory } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -23,6 +23,7 @@ import { DataTablePagination, usePagination } from "@/components/data-table-pagi
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import * as XLSX from 'xlsx';
+import { SendToSemiFinishedDialog } from "./send-to-semi-finished-dialog";
 
 interface ProductionPlanningTableProps {
     products: any[];
@@ -67,6 +68,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     const [selectedProduct, setSelectedProduct] = useState<any>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isPending, startTransition] = useTransition();
+    const [isSemiFinishedDialogOpen, setIsSemiFinishedDialogOpen] = useState(false);
 
     // Inline edit - aşamalar için
     const [editingProduct, setEditingProduct] = useState<number | null>(null);
@@ -1826,6 +1828,15 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                     <span className="font-medium">{selectedProductIds.length} ürün seçili</span>
                     <div className="h-6 w-px bg-slate-600" />
                     <Button
+                        onClick={() => setIsSemiFinishedDialogOpen(true)}
+                        variant="secondary"
+                        size="sm"
+                        className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                        <Factory className="h-4 w-4" />
+                        Yarı Mamül Üretime Gönder
+                    </Button>
+                    <Button
                         onClick={handleExportSelected}
                         variant="secondary"
                         size="sm"
@@ -1845,6 +1856,19 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                     </Button>
                 </div>
             )}
+
+            {/* Yarı Mamül Üretime Gönderme Dialog */}
+            <SendToSemiFinishedDialog
+                open={isSemiFinishedDialogOpen}
+                onOpenChange={setIsSemiFinishedDialogOpen}
+                selectedProductIds={selectedProductIds}
+                products={filteredProducts}
+                onSuccess={() => {
+                    setSelectedProductIds([]);
+                    // Sayfayı yenile
+                    window.location.reload();
+                }}
+            />
         </div>
     );
 }

@@ -318,54 +318,171 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
     };
 
     const handlePrint = (p: Product) => {
+        // Generate barcode as base64 image using canvas
+        let barcodeDataUrl = '';
+        if (p.barcode) {
+            try {
+                const canvas = document.createElement('canvas');
+                const JsBarcode = require('jsbarcode');
+                JsBarcode(canvas, p.barcode, {
+                    format: 'CODE128',
+                    width: 2,
+                    height: 60,
+                    displayValue: false,
+                    margin: 10
+                });
+                barcodeDataUrl = canvas.toDataURL('image/png');
+            } catch (error) {
+                console.error('Barcode generation error:', error);
+            }
+        }
+
         const printContent = `
             <html>
                 <head>
-                    <title>İş Emri - ${p.name}</title>
+                    <title>${p.name}</title>
                     <style>
-                        body { font-family: sans-serif; padding: 20px; text-align: center; border: 2px solid black; margin: 20px; }
-                        h1 { font-size: 24px; margin-bottom: 5px; }
-                        h2 { font-size: 18px; color: #555; margin-bottom: 20px; }
-                        .info { text-align: left; margin: 20px auto; width: 80%; border-top: 1px solid #ddd; padding-top: 20px; }
-                        .row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 18px; }
-                        .label { font-weight: bold; }
-                        .barcode-box { margin: 30px 0; border: 1px dashed #ccc; padding: 20px; display: inline-block; }
-                        .footer { margin-top: 50px; font-size: 12px; color: #999; }
-                        .notes { text-align: left; margin: 20px auto; width: 80%; background: #fffbeb; border: 1px solid #fbbf24; padding: 15px; border-radius: 8px; }
-                        .notes h3 { font-size: 14px; color: #92400e; margin: 0 0 10px 0; }
-                        .note-item { background: white; padding: 8px; margin: 5px 0; border-radius: 4px; font-size: 14px; }
+                        @page { margin: 10mm; size: A4 landscape; }
+                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                        body {
+                            font-family: Arial, sans-serif;
+                            padding: 12px;
+                            border: 3px solid black;
+                            background: white;
+                            color: black;
+                            font-size: 12px;
+                        }
+                        .header {
+                            text-align: center;
+                            border-bottom: 2px solid black;
+                            padding-bottom: 8px;
+                            margin-bottom: 12px;
+                        }
+                        .logo {
+                            font-size: 28px;
+                            font-weight: bold;
+                            color: black;
+                            letter-spacing: 3px;
+                        }
+                        .product-title {
+                            font-size: 18px;
+                            margin: 5px 0 3px 0;
+                            font-weight: bold;
+                        }
+                        .product-model {
+                            font-size: 14px;
+                            margin-bottom: 5px;
+                        }
+                        .info-table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin: 10px 0;
+                        }
+                        .info-table td {
+                            padding: 5px 10px;
+                            border: 1px solid black;
+                            font-size: 13px;
+                        }
+                        .info-table td:first-child {
+                            font-weight: bold;
+                            width: 150px;
+                            background: #e0e0e0;
+                        }
+                        .barcode-container {
+                            text-align: center;
+                            margin-top: 15px;
+                            padding: 12px;
+                            border: 2px solid black;
+                            background: white;
+                        }
+                        .barcode-label {
+                            font-size: 14px;
+                            font-weight: bold;
+                            margin-bottom: 8px;
+                        }
+                        .barcode-image {
+                            display: block;
+                            margin: 10px auto;
+                            max-width: 400px;
+                        }
+                        .barcode-number {
+                            font-family: 'Courier New', monospace;
+                            font-size: 24px;
+                            font-weight: bold;
+                            margin-top: 8px;
+                            letter-spacing: 3px;
+                        }
+                        .notes {
+                            margin: 10px 0;
+                            padding: 8px;
+                            border: 2px solid black;
+                            background: #f5f5f5;
+                        }
+                        .notes h3 {
+                            font-size: 12px;
+                            margin-bottom: 5px;
+                            font-weight: bold;
+                        }
+                        .note-item {
+                            padding: 4px;
+                            margin: 3px 0;
+                            background: white;
+                            border: 1px solid #999;
+                            font-size: 11px;
+                        }
+                        .footer {
+                            margin-top: 12px;
+                            text-align: center;
+                            font-size: 10px;
+                            border-top: 1px solid black;
+                            padding-top: 6px;
+                        }
                     </style>
                 </head>
                 <body>
-                    <h1>${p.company || 'Firma Yok'}</h1>
-                    <h2>${p.model} - ${p.name}</h2>
-
-                    <div class="info">
-                        <div class="row">
-                            <span class="label">Ürün Kodu</span>
-                            <span>${p.systemCode}</span>
+                    <div class="header">
+                        <div>
+                            <img src="/image.png" alt="Product Image" />
                         </div>
-                         <div class="row">
-                            <span class="label">Termin Tarihi:</span>
-                            <span>${new Date(p.terminDate).toLocaleDateString('tr-TR')}</span>
-                        </div>
-                        <div class="row">
-                            <span class="label">Planlanan Adet:</span>
-                            <span>${p.quantity} Adet</span>
-                        </div>
-                        <div class="row">
-                            <span class="label">Ayak Rengi:</span>
-                            <span>${p.footMaterial || '-'}</span>
-                        </div>
-                         <div class="row">
-                            <span class="label">Kumaş:</span>
-                            <span>${p.fabricType || '-'}</span>
-                        </div>
+                        <div class="product-title">${p.name}</div>
+                        <div class="product-model">${p.model}</div>
                     </div>
+
+
+                    <table class="info-table">
+                        <tr>
+                            <td>Firma</td>
+                            <td>${p.order?.company || p.company || '-'}</td>
+                        </tr>
+                        <tr>
+                            <td>Ürün Kodu</td>
+                            <td>${p.model}</td>
+                        </tr>
+                        <tr>
+                            <td>Barkod</td>
+                            <td style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;">${p.barcode || 'Barkod Yok'}</td>
+                        </tr>
+                        <tr>
+                            <td>Termin Tarihi</td>
+                            <td>${new Date(p.terminDate).toLocaleDateString('tr-TR')}</td>
+                        </tr>
+                        <tr>
+                            <td>Planlanan</td>
+                            <td><strong>${p.quantity} Adet</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Ayak Rengi</td>
+                            <td>${p.footMaterial || '-'}</td>
+                        </tr>
+                        <tr>
+                            <td>Kumaş</td>
+                            <td>${p.fabricType || '-'}</td>
+                        </tr>
+                    </table>
 
                     ${(p.aciklama1 || p.aciklama2 || p.aciklama3 || p.aciklama4) ? `
                     <div class="notes">
-                        <h3>Sipariş Notları</h3>
+                        <h3>SİPARİŞ NOTLARI</h3>
                         ${p.aciklama1 ? `<div class="note-item"><strong>1:</strong> ${p.aciklama1}</div>` : ''}
                         ${p.aciklama2 ? `<div class="note-item"><strong>2:</strong> ${p.aciklama2}</div>` : ''}
                         ${p.aciklama3 ? `<div class="note-item"><strong>3:</strong> ${p.aciklama3}</div>` : ''}
@@ -373,16 +490,15 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     </div>
                     ` : ''}
 
-                    <div class="barcode-box">
-                        <div style="font-family: 'Courier New', monospace; font-size: 40px; letter-spacing: 5px; font-weight: bold;">
-                            *${p.barcode}*
+                    ${barcodeDataUrl ? `
+                    <div class="barcode-container">
+                        <div class="barcode-label">BARKOD</div>
+                        <img src="${barcodeDataUrl}" alt="Barcode" class="barcode-image" />
+                        <div class="barcode-number">
+                            ${p.barcode}
                         </div>
-                        <div style="font-size: 14px; margin-top: 5px;">${p.barcode}</div>
                     </div>
-
-                    <div class="footer">
-                        Oluşturulma: ${new Date().toLocaleString('tr-TR')}
-                    </div>
+                    ` : ''}
                 </body>
             </html>
         `;
@@ -391,11 +507,13 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
             printWindow.document.write(printContent);
             printWindow.document.close();
             printWindow.focus();
-            // Wait for resources to load? Text is fast. But close() needs to wait for print dialog.
+            // Wait for content to fully render before printing
             setTimeout(() => {
                 printWindow.print();
-                printWindow.close();
-            }, 250);
+                setTimeout(() => {
+                    printWindow.close();
+                }, 500);
+            }, 500);
         }
     };
 

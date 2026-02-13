@@ -5,6 +5,8 @@ import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { writeFile } from "fs/promises";
 import { join } from "path";
+import fs from "fs";
+import path from "path";
 import { createAuditLog } from "./shared";
 import { netSimClient } from "@/lib/netsim-client";
 
@@ -28,6 +30,10 @@ export async function createProduct(formData: FormData) {
     // Shelf is removed from Product model
     const image = formData.get("image") as File | null;
     const existingImageUrl = formData.get("existingImageUrl") as string;
+
+    // Catalog Product
+    const catalogProductIdStr = formData.get("catalogProductId") as string;
+    const catalogProductId = catalogProductIdStr ? parseInt(catalogProductIdStr) : null;
 
     // New Configuration Fields
     const footType = formData.get("footType") as string;
@@ -81,6 +87,7 @@ export async function createProduct(formData: FormData) {
                 armType: armType || null,
                 backType: backType || null,
                 fabricType: fabricType || null,
+                catalogProductId: catalogProductId, // Katalog ürün ilişkisi
                 createdById: userId,
             },
         });
@@ -167,6 +174,10 @@ export async function updateProduct(id: number, formData: FormData) {
     const material = formData.get("material") as string;
     const description = formData.get("description") as string;
 
+    // Catalog Product
+    const catalogProductIdStr = formData.get("catalogProductId") as string;
+    const catalogProductId = catalogProductIdStr ? parseInt(catalogProductIdStr) : null;
+
     // shelf removal
 
     const footType = formData.get("footType") as string;
@@ -175,6 +186,26 @@ export async function updateProduct(id: number, formData: FormData) {
     const backType = formData.get("backType") as string;
     const fabricType = formData.get("fabricType") as string;
     const master = formData.get("master") as string;
+
+    // Fotoğraf yükleme
+    const imageFile = formData.get("image") as File | null;
+    let imageUrl: string | undefined;
+
+    if (imageFile && imageFile.size > 0) {
+        const bytes = await imageFile.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+
+        // public/uploads klasörüne kaydet
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        const fileName = `${Date.now()}-${imageFile.name}`;
+        const filePath = path.join(uploadDir, fileName);
+        fs.writeFileSync(filePath, buffer);
+        imageUrl = `/uploads/${fileName}`;
+    }
 
     const updates: any = {};
     let logDetails = "";
@@ -211,6 +242,8 @@ export async function updateProduct(id: number, formData: FormData) {
                 backType: backType || null,
                 fabricType: fabricType || null,
                 master: master || null,
+                catalogProductId: catalogProductId, // Katalog ürün ilişkisi güncelle
+                ...(imageUrl && { imageUrl }), // Fotoğraf varsa güncelle
                 ...updates
             }
         });
@@ -1041,12 +1074,12 @@ export async function getHistoricalProductionData(weeksCount: number = 4) {
             if (w === 0) {
                 label = "Bu Hafta";
             } else if (w === 1) {
-                label = "GeÃ§en Hafta";
+                label = "Geçen Hafta";
             } else {
-                label = `${w} Hafta Ã–nce`;
+                label = `${w} Hafta Önce`;
             }
 
-            // Tarih aralÄ±ÄŸÄ±
+            // Tarih aralığı
             const weekEndDisplay = new Date(weekEnd);
             weekEndDisplay.setDate(weekEndDisplay.getDate() - 1);
             const dateRange = `${weekStart.getDate()}/${weekStart.getMonth() + 1} - ${weekEndDisplay.getDate()}/${weekEndDisplay.getMonth() + 1}`;
@@ -1074,7 +1107,7 @@ export async function updateProductStatus(productId: number, status: string) {
     const role = (session.user as any).role;
     // ADMIN, PLANNER (view only), ENGINEER can update status
     if (!["ADMIN", "ENGINEER"].includes(role)) {
-        return { error: "Bu iÅŸlem iÃ§in yetkiniz yok. Sadece Admin veya Ãœretim MÃ¼hendisi gÃ¼ncelleyebilir." };
+        return { error: "Bu işlem için yetkiniz yok. Sadece Admin veya Üretim Mühendisi güncelleyebilir." };
     }
 
     const userId = parseInt((session.user as any).id);
@@ -1088,7 +1121,7 @@ export async function updateProductStatus(productId: number, status: string) {
     ];
 
     if (!validStatuses.includes(status)) {
-        return { error: "GeÃ§ersiz durum deÄŸeri" };
+        return { error: "Geçersiz durum değeri" };
     }
 
     try {
@@ -1098,7 +1131,7 @@ export async function updateProductStatus(productId: number, status: string) {
         });
 
         if (!product) {
-            return { error: "ÃœrÃ¼n bulunamadÄ±" };
+            return { error: "Ürün bulunamadı" };
         }
 
         const oldStatus = product.status;
@@ -1116,7 +1149,7 @@ export async function updateProductStatus(productId: number, status: string) {
             "UPDATE_STATUS",
             "Product",
             product.systemCode,
-            `Durum gÃ¼ncellendi: ${oldStatus} -> ${status}`,
+            `Durum güncellendi: ${oldStatus} -> ${status}`,
             userId
         );
 
@@ -1126,19 +1159,19 @@ export async function updateProductStatus(productId: number, status: string) {
         return { success: true };
     } catch (e) {
         console.error("Update product status error:", e);
-        return { error: "Durum gÃ¼ncellenirken hata oluÅŸtu" };
+        return { error: "Durum güncellenirken hata oluştu" };
     }
 }
 
-// ÃœrÃ¼n alt durumunu gÃ¼ncelle (DÃ¶ÅŸemede, Montajda, Sevk Bekliyor, etc.)
+// Ürün alt durumunu güncelle (Döşemede, Montajda, Sevk Bekliyor, etc.)
 export async function updateProductSubStatus(productId: number, subStatus: string | null) {
     const session = await auth();
-    if (!session) return { error: "Yetkisiz iÅŸlem" };
+    if (!session) return { error: "Yetkisiz işlem" };
 
     const role = (session.user as any).role;
     // ADMIN and ENGINEER can update sub-status
     if (!["ADMIN", "ENGINEER"].includes(role)) {
-        return { error: "Bu iÅŸlem iÃ§in yetkiniz yok. Sadece Admin veya Ãœretim MÃ¼hendisi gÃ¼ncelleyebilir." };
+        return { error: "Bu işlem için yetkiniz yok. Sadece Admin veya Üretim Mühendisi güncelleyebilir." };
     }
 
     const userId = parseInt((session.user as any).id);

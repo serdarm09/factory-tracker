@@ -7,7 +7,7 @@ import { AuthSessionProvider } from "@/components/session-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "MariSit CRM",
+  title: "Marisit ERP",
   description: "Fabrika Üretim Takip Sistemi",
   manifest: "/manifest.json",
 };

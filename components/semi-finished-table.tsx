@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
     Table,
     TableBody,
@@ -11,9 +12,11 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SemiFinishedDialog } from "./semi-finished-dialog";
 import { SemiFinishedStockDialog } from "./semi-finished-stock-dialog";
-import { Edit, ArrowUpCircle, ArrowDownCircle, Trash2 } from "lucide-react";
+import { Edit, ArrowUpCircle, ArrowDownCircle, Trash2, Search, X, Filter } from "lucide-react";
 import { deleteSemiFinished } from "@/lib/actions";
 import { toast } from "sonner";
 import { Pagination } from "@/components/ui/pagination";
@@ -41,10 +44,22 @@ interface SemiFinished {
 
 interface SemiFinishedTableProps {
     items: SemiFinished[];
+    categories: string[];
+    locations: string[];
+    currentFilters: {
+        search: string;
+        category: string;
+        location: string;
+        status: string;
+    };
 }
 
-export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
+export function SemiFinishedTable({ items, categories, locations, currentFilters }: SemiFinishedTableProps) {
+    const router = useRouter();
+    const searchParams = useSearchParams();
     const [currentPage, setCurrentPage] = useState(1);
+    const [searchInput, setSearchInput] = useState(currentFilters.search);
+    const [showFilters, setShowFilters] = useState(false);
     const itemsPerPage = 25;
 
     // Pagination
@@ -53,6 +68,28 @@ export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
         (currentPage - 1) * itemsPerPage,
         currentPage * itemsPerPage
     );
+
+    const updateFilter = (key: string, value: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (value && value !== 'all') {
+            params.set(key, value);
+        } else {
+            params.delete(key);
+        }
+        router.push(`?${params.toString()}`);
+    };
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        updateFilter('q', searchInput);
+    };
+
+    const clearFilters = () => {
+        setSearchInput('');
+        router.push('/dashboard/semi-finished');
+    };
+
+    const hasActiveFilters = currentFilters.search || currentFilters.category || currentFilters.location || currentFilters.status;
 
     const handleDelete = async (id: number, name: string) => {
         if (!confirm(`"${name}" yarı mamülünü silmek istediğinize emin misiniz?`)) {
@@ -69,14 +106,241 @@ export function SemiFinishedTable({ items }: SemiFinishedTableProps) {
 
     if (items.length === 0) {
         return (
-            <div className="text-center py-8 text-muted-foreground">
-                Henüz yarı mamül kaydı yok. Yeni eklemek için yukarıdaki butonu kullanın.
-            </div>
+            <>
+                {/* Filtreleme Bölümü */}
+                <div className="space-y-4 mb-6">
+                    {/* Arama Çubuğu */}
+                    <form onSubmit={handleSearch} className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="İsim, kod veya açıklama ile ara..."
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                                className="pl-10"
+                            />
+                        </div>
+                        <Button type="submit" variant="secondary">
+                            Ara
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowFilters(!showFilters)}
+                        >
+                            <Filter className="h-4 w-4 mr-2" />
+                            Filtreler
+                        </Button>
+                        {hasActiveFilters && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={clearFilters}
+                            >
+                                <X className="h-4 w-4 mr-2" />
+                                Temizle
+                            </Button>
+                        )}
+                    </form>
+
+                    {/* Genişletilmiş Filtreler */}
+                    {showFilters && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Kategori</label>
+                                <Select
+                                    value={currentFilters.category}
+                                    onValueChange={(value) => updateFilter('category', value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Tümü" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="">Tümü</SelectItem>
+                                        {categories.map(cat => (
+                                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Lokasyon</label>
+                                <Select
+                                    value={currentFilters.location}
+                                    onValueChange={(value) => updateFilter('location', value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Tümü" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="">Tümü</SelectItem>
+                                        {locations.map(loc => (
+                                            <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Stok Durumu</label>
+                                <Select
+                                    value={currentFilters.status}
+                                    onValueChange={(value) => updateFilter('status', value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Tümü" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="">Tümü</SelectItem>
+                                        <SelectItem value="normal">Normal</SelectItem>
+                                        <SelectItem value="low-stock">Düşük Stok</SelectItem>
+                                        <SelectItem value="out-of-stock">Stokta Yok</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="text-center py-8 text-muted-foreground border rounded-lg bg-slate-50">
+                    {hasActiveFilters ? (
+                        <>
+                            <p className="text-lg font-medium mb-2">Filtreye uygun sonuç bulunamadı</p>
+                            <Button onClick={clearFilters} variant="outline" size="sm">
+                                Filtreleri Temizle
+                            </Button>
+                        </>
+                    ) : (
+                        <p>Henüz yarı mamül kaydı yok. Yeni eklemek için yukarıdaki butonu kullanın.</p>
+                    )}
+                </div>
+            </>
         );
     }
 
     return (
         <>
+            {/* Filtreleme Bölümü */}
+            <div className="space-y-4 mb-6">
+                {/* Arama Çubuğu */}
+                <form onSubmit={handleSearch} className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="İsim, kod veya açıklama ile ara..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            className="pl-10"
+                        />
+                    </div>
+                    <Button type="submit" variant="secondary">
+                        Ara
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setShowFilters(!showFilters)}
+                    >
+                        <Filter className="h-4 w-4 mr-2" />
+                        Filtreler
+                        {hasActiveFilters && (
+                            <Badge variant="destructive" className="ml-2 h-5 w-5 p-0 flex items-center justify-center rounded-full">
+                                !
+                            </Badge>
+                        )}
+                    </Button>
+                    {hasActiveFilters && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={clearFilters}
+                        >
+                            <X className="h-4 w-4 mr-2" />
+                            Temizle
+                        </Button>
+                    )}
+                </form>
+
+                {/* Genişletilmiş Filtreler */}
+                {showFilters && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Kategori</label>
+                            <Select
+                                value={currentFilters.category}
+                                onValueChange={(value) => updateFilter('category', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Tümü" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tümü</SelectItem>
+                                    {categories.map(cat => (
+                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Lokasyon</label>
+                            <Select
+                                value={currentFilters.location}
+                                onValueChange={(value) => updateFilter('location', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Tümü" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tümü</SelectItem>
+                                    {locations.map(loc => (
+                                        <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Stok Durumu</label>
+                            <Select
+                                value={currentFilters.status}
+                                onValueChange={(value) => updateFilter('status', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Tümü" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Tümü</SelectItem>
+                                    <SelectItem value="normal">Normal</SelectItem>
+                                    <SelectItem value="low-stock">Düşük Stok</SelectItem>
+                                    <SelectItem value="out-of-stock">Stokta Yok</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Tablo */}
+            {/* Sonuç Bilgisi */}
+            <div className="flex justify-between items-center mb-4">
+                <p className="text-sm text-muted-foreground">
+                    {hasActiveFilters ? (
+                        <>
+                            <span className="font-semibold text-slate-900">{items.length}</span> sonuç bulundu
+                        </>
+                    ) : (
+                        <>
+                            Toplam <span className="font-semibold text-slate-900">{items.length}</span> yarı mamül
+                        </>
+                    )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                    Sayfa {currentPage} / {totalPages}
+                </p>
+            </div>
+
             <Table>
                 <TableHeader>
                     <TableRow>

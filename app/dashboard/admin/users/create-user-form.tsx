@@ -37,13 +37,21 @@ export function UserCreateForm() {
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Rol</label>
                         <select name="role" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                            <option value="VIEWER">VIEWER (İzleyici)</option>
-                            <option value="PLANNER">PLANNER (Planlamacı)</option>
-                            <option value="ENGINEER">ENGINEER (Üretim Mühendisi)</option>
-                            <option value="MARKETER">MARKETER (Pazarlamacı)</option>
-                            <option value="WAREHOUSE">WAREHOUSE (Depo Sorumlusu)</option>
-                            <option value="WORKER">WORKER (Sevkiyatçı)</option>
-                            <option value="ADMIN">ADMIN (Yönetici)</option>
+                            <optgroup label="Genel Roller">
+                                <option value="VIEWER">VIEWER (İzleyici)</option>
+                                <option value="PLANNER">PLANNER (Planlamacı)</option>
+                                <option value="ENGINEER">ENGINEER (Üretim Mühendisi)</option>
+                                <option value="MARKETER">MARKETER (Pazarlamacı)</option>
+                                <option value="WAREHOUSE">WAREHOUSE (Depo Sorumlusu)</option>
+                                <option value="WORKER">WORKER (Sevkiyatçı)</option>
+                                <option value="ADMIN">ADMIN (Yönetici)</option>
+                            </optgroup>
+                            <optgroup label="Yarı Mamül Rolleri">
+                                <option value="METAL">METAL (Metal Üretim)</option>
+                                <option value="KONFEKSIYON">KONFEKSIYON (Konfeksiyon Üretim)</option>
+                                <option value="AHSAP_BOYA">AHSAP_BOYA (Ahşap Boya Üretim)</option>
+                                <option value="AHSAP_ISKELET">AHSAP_ISKELET (Ahşap İskelet Üretim)</option>
+                            </optgroup>
                         </select>
                     </div>
 

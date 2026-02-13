@@ -9,7 +9,16 @@ import { SemiFinishedDialog } from "@/components/semi-finished-dialog";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-export default async function SemiFinishedPage() {
+export default async function SemiFinishedPage({
+    searchParams,
+}: {
+    searchParams?: {
+        q?: string;
+        category?: string;
+        location?: string;
+        status?: string;
+    };
+}) {
     const session = await auth();
     const role = (session?.user as any)?.role;
 
@@ -17,7 +26,32 @@ export default async function SemiFinishedPage() {
         redirect("/dashboard");
     }
 
+    const searchQuery = searchParams?.q || "";
+    const categoryFilter = searchParams?.category || "";
+    const locationFilter = searchParams?.location || "";
+    const statusFilter = searchParams?.status || "";
+
+    // Build where clause
+    const where: any = {};
+
+    if (searchQuery) {
+        where.OR = [
+            { name: { contains: searchQuery } },
+            { code: { contains: searchQuery } },
+            { description: { contains: searchQuery } }
+        ];
+    }
+
+    if (categoryFilter) {
+        where.category = categoryFilter;
+    }
+
+    if (locationFilter) {
+        where.location = locationFilter;
+    }
+
     const semiFinished = await prisma.semiFinished.findMany({
+        where,
         orderBy: { updatedAt: 'desc' },
         include: {
             logs: {
@@ -27,14 +61,36 @@ export default async function SemiFinishedPage() {
         }
     });
 
-    // İstatistikler
-    const totalItems = semiFinished.length;
-    const totalStock = semiFinished.reduce((sum, item) => sum + item.quantity, 0);
-    const lowStockItems = semiFinished.filter(item => item.quantity <= item.minStock);
-    const outOfStockItems = semiFinished.filter(item => item.quantity === 0);
+    // Apply status filter (client-side since it's computed)
+    let filteredItems = semiFinished;
+    if (statusFilter === 'out-of-stock') {
+        filteredItems = semiFinished.filter(item => item.quantity === 0);
+    } else if (statusFilter === 'low-stock') {
+        filteredItems = semiFinished.filter(item => item.quantity > 0 && item.quantity <= item.minStock);
+    } else if (statusFilter === 'normal') {
+        filteredItems = semiFinished.filter(item => item.quantity > item.minStock);
+    }
 
-    // Kategorilere göre grupla
-    const categories = [...new Set(semiFinished.map(item => item.category || 'Diğer'))];
+    // İstatistikler
+    const totalItems = filteredItems.length;
+    const totalStock = filteredItems.reduce((sum, item) => sum + item.quantity, 0);
+    const lowStockItems = filteredItems.filter(item => item.quantity > 0 && item.quantity <= item.minStock);
+    const outOfStockItems = filteredItems.filter(item => item.quantity === 0);
+
+    // Kategorilere göre grupla ve lokasyonlar
+    const allCategories = await prisma.semiFinished.findMany({
+        select: { category: true },
+        distinct: ['category'],
+        where: { category: { not: null } }
+    });
+    const categories = allCategories.map(c => c.category as string).filter(Boolean);
+
+    const allLocations = await prisma.semiFinished.findMany({
+        select: { location: true },
+        distinct: ['location'],
+        where: { location: { not: null } }
+    });
+    const locations = allLocations.map(l => l.location as string).filter(Boolean);
 
     return (
         <div className="space-y-6">
@@ -129,7 +185,17 @@ export default async function SemiFinishedPage() {
                     <CardTitle>Yarı Mamül Listesi</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <SemiFinishedTable items={semiFinished} />
+                    <SemiFinishedTable
+                        items={filteredItems}
+                        categories={categories}
+                        locations={locations}
+                        currentFilters={{
+                            search: searchQuery,
+                            category: categoryFilter,
+                            location: locationFilter,
+                            status: statusFilter
+                        }}
+                    />
                 </CardContent>
             </Card>
         </div>

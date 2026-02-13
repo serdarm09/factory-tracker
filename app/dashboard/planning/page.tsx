@@ -32,7 +32,8 @@ export default async function PlanningPage() {
         include: {
             products: {
                 include: {
-                    order: true // Product içinden order'a erişebilmek için
+                    order: true, // Product içinden order'a erişebilmek için
+                    catalogProduct: true // Katalog ürünü bilgisi
                 }
             },
             marketingBy: true
@@ -43,11 +44,16 @@ export default async function PlanningPage() {
     // If strict migration, all products should have orderId?
     // Old products have orderId = null.
     // We should display them too in a "Legacy / Unassigned" group.
+    // Exclude TEMPLATE status products (catalog component templates)
     const legacyProducts = await prisma.product.findMany({
-        where: { orderId: null },
+        where: {
+            orderId: null,
+            status: { not: 'TEMPLATE' }  // Template kayıtları hariç tut
+        },
         orderBy: { createdAt: 'desc' },
         include: {
-            order: true
+            order: true,
+            catalogProduct: true // Katalog ürünü bilgisi
         }
     });
 

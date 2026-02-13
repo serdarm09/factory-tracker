@@ -11,7 +11,7 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
-  role      String   // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER
+  role      String   // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER, ENGINEER, METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET
   createdProducts Product[] @relation("CreatedProducts")
   createdOrders   Order[]   @relation("CreatedOrders")
   createdAt DateTime @default(now())
@@ -52,6 +52,10 @@ model Product {
   name        String
   model       String
   sku         String?  // Stok kodu
+
+  // Catalog Product ilişkisi (Kullanıcının seçtiği ürün)
+  catalogProductId Int?
+  catalogProduct   ProductCatalog? @relation(fields: [catalogProductId], references: [id])
 
   // Quantities
   quantity    Int      // Planlanan Adet
@@ -116,7 +120,8 @@ model Product {
   inventory   Inventory[]
   bom         BomItem[]
   shipmentItems ShipmentItem[]
-  components    ProductComponent[]
+  components    ProductComponent[] @relation("ProductToComponents")
+  semiFinishedProductions SemiFinishedProduction[]
 }
 
 // Multi-Shelf Inventory (Raf Stok)
@@ -205,6 +210,7 @@ model ProductCatalog {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   imageUrl  String?
+  products  Product[] // Bu katalog ürününü kullanan Product kayıtları
 }
 
 model ProductFeature {
@@ -253,6 +259,21 @@ model SemiFinishedLog {
   createdAt       DateTime     @default(now())
 }
 
+// Yarı Mamül Üretim (Ürünlerin yarı mamül üretim aşamaları)
+model SemiFinishedProduction {
+  id          Int      @id @default(autoincrement())
+  product     Product  @relation(fields: [productId], references: [id])
+  productId   Int
+  category    String   // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET
+  targetQty   Int      // Hedef üretim miktarı
+  producedQty Int      @default(0) // Üretilen miktar
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, category])
+}
+
 // Bildirimler (Admin'e gelen bildirimler)
 model Notification {
   id          Int      @id @default(autoincrement())
@@ -269,7 +290,7 @@ model Notification {
 
 model ProductComponent {
   id        Int      @id @default(autoincrement())
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product  @relation("ProductToComponents", fields: [productId], references: [id])
   productId Int
   category  String
   value     String

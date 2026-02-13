@@ -44,10 +44,15 @@ export default async function MarketingPage() {
         orderBy: { createdAt: "desc" }
     });
 
-    // Üretimde olan ürünleri getir
+    // Üretimde olan ürünleri getir (manuel eklenen yarı mamül ürünleri hariç tut)
     const inProductionProducts = await prisma.product.findMany({
         where: {
-            status: "IN_PRODUCTION"
+            status: "IN_PRODUCTION",
+            NOT: {
+                sku: {
+                    startsWith: "MANUAL-"
+                }
+            }
         },
         include: {
             order: true,

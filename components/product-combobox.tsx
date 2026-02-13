@@ -19,7 +19,7 @@ import {
 import { searchCatalog } from "@/lib/catalog-actions"
 
 interface ProductComboboxProps {
-    onSelect: (product: { code: string; name: string; model?: string; systemCode?: string; imageUrl?: string | null }) => void;
+    onSelect: (product: { id: number; code: string; name: string; model?: string; systemCode?: string; imageUrl?: string | null }) => void;
     placeholder?: string;
     disabled?: boolean;
 }

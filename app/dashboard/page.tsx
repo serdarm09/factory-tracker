@@ -151,7 +151,7 @@ export default async function DashboardPage() {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-3xl font-bold">{activeProducts.length}</div>
-                                <p className="text-xs opacity-80 mt-1">Aktif üretim emirleri</p>
+                                <p className="text-xs opacity-80 mt-1">Aktif üretilecek ürünler</p>
                             </CardContent>
                         </Card>
 

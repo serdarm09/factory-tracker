@@ -28,8 +28,13 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
     );
 
     // Initial state from product if editing
-    const [selectedProduct, setSelectedProduct] = useState<{ code: string, name: string, imageUrl?: string | null } | null>(
-        product ? { code: product.systemCode, name: product.name, imageUrl: product.imageUrl } : null
+    const [selectedProduct, setSelectedProduct] = useState<{ id: number; code: string, name: string, imageUrl?: string | null } | null>(
+        product?.catalogProduct ? {
+            id: product.catalogProduct.id,
+            code: product.catalogProduct.code,
+            name: product.catalogProduct.name,
+            imageUrl: product.catalogProduct.imageUrl
+        } : null
     );
     const [orderDate, setOrderDate] = useState<Date | undefined>(
         product?.orderDate ? new Date(product.orderDate) : new Date()
@@ -100,15 +105,15 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
         }
     }
 
-    function handleProductSelect(selected: { code: string; name: string; imageUrl?: string | null }) {
+    function handleProductSelect(selected: { id: number; code: string; name: string; imageUrl?: string | null }) {
         setSelectedProduct(selected);
         if (formRef.current) {
             const form = formRef.current;
-            const nameInput = form.elements.namedItem('name') as HTMLInputElement;
-            const codeInput = form.elements.namedItem('systemCode') as HTMLInputElement;
+            const nameInput = form.elements.namedItem('catalogProductName') as HTMLInputElement;
+            const idInput = form.elements.namedItem('catalogProductId') as HTMLInputElement;
 
             if (nameInput) nameInput.value = selected.name;
-            if (codeInput) codeInput.value = selected.code;
+            if (idInput) idInput.value = selected.id.toString();
         }
     }
 
@@ -147,11 +152,25 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                 </div>
             )}
 
+            {/* NetSim'den Gelen Orijinal Ad - Sadece düzenleme modunda */}
+            {product && (
+                <div className="p-4 border-2 rounded-lg bg-slate-50 border-slate-200">
+                    <Label className="text-sm font-semibold text-slate-700">NetSim Ürün Adı (Orijinal)</Label>
+                    <p className="text-lg font-bold text-slate-900 mt-1">{product.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">Bu ad NetSim'den gelen orijinal üründür</p>
+                </div>
+            )}
+
             <div className="space-y-2">
                 <Label>Ürün Ara (Katalogdan Seç)</Label>
                 <div className="w-full">
                     <ProductCombobox onSelect={handleProductSelect} />
                 </div>
+                {selectedProduct && (
+                    <p className="text-sm text-green-600 font-medium">
+                        ✓ Seçilen: {selectedProduct.name}
+                    </p>
+                )}
             </div>
 
             {/* Image Upload and Preview */}
@@ -194,6 +213,14 @@ export function PlanningForm({ product, onSuccess }: PlanningFormProps) {
                     </div>
                 </div>
             </div>
+
+            {/* Hidden fields for catalog product */}
+            {selectedProduct && (
+                <>
+                    <input type="hidden" name="catalogProductId" value={selectedProduct.id} />
+                    <input type="hidden" name="catalogProductName" value={selectedProduct.name} />
+                </>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
 

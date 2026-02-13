@@ -277,3 +277,65 @@ export async function getProductComponents(productName: string) {
         return [];
     }
 }
+
+export async function updateProductComponents(productName: string, components: { [key: string]: string }) {
+    'use server';
+
+    try {
+        // Template Product kaydını bul veya oluştur
+        let product = await prisma.product.findFirst({
+            where: {
+                name: productName,
+                orderId: null,
+                status: 'TEMPLATE'
+            }
+        });
+
+        if (!product) {
+            // Katalog ürününü bul
+            const catalogProduct = await prisma.productCatalog.findFirst({
+                where: { name: productName }
+            });
+
+            if (!catalogProduct) {
+                return { error: "Katalog ürünü bulunamadı" };
+            }
+
+            // Template Product kaydı oluştur
+            product = await prisma.product.create({
+                data: {
+                    name: catalogProduct.name,
+                    model: catalogProduct.code,
+                    quantity: 0,
+                    orderDate: new Date(),
+                    status: 'TEMPLATE',
+                    systemCode: `TEMPLATE-${catalogProduct.code}-${Date.now()}`
+                }
+            });
+        }
+
+        // Mevcut bileşenleri sil
+        await prisma.productComponent.deleteMany({
+            where: { productId: product.id }
+        });
+
+        // Yeni bileşenleri ekle
+        for (const [category, value] of Object.entries(components)) {
+            if (value && value.trim() !== '' && value.trim() !== 'YOK') {
+                await prisma.productComponent.create({
+                    data: {
+                        productId: product.id,
+                        category: category,
+                        value: value.trim()
+                    }
+                });
+            }
+        }
+
+        revalidatePath('/dashboard/admin/catalog');
+        return { success: true };
+    } catch (e) {
+        console.error("Update product components error:", e);
+        return { error: "Bileşenler güncellenirken hata oluştu" };
+    }
+}

@@ -416,7 +416,7 @@ export default function NetSimPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              NetSim veritabanina baglanarak siparisleri Factory Tracker'a
+              NetSim veritabanina baglanarak siparisleri Marisit ERP'a
               aktarabilirsiniz.
             </p>
             <Button
