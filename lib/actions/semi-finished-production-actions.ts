@@ -3,48 +3,82 @@
 import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
+// Belirtilen ürünlerin hangi kategorilere zaten gönderildiğini getir
+export async function getExistingSemiFinishedCategories(productIds: number[]) {
+    try {
+        const existing = await prisma.semiFinishedProduction.findMany({
+            where: { productId: { in: productIds } },
+            select: { productId: true, category: true }
+        });
+        // { productId: [category, ...] } haritası döndür
+        const map: Record<number, string[]> = {};
+        existing.forEach(e => {
+            if (!map[e.productId]) map[e.productId] = [];
+            map[e.productId].push(e.category);
+        });
+        return map;
+    } catch {
+        return {};
+    }
+}
+
 // Ürünleri yarı mamül üretime gönder
 export async function sendToSemiFinishedProduction(data: {
     products: { id: number; quantity: number; description?: string }[];
-    categories: string[]; // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET
+    categories: string[]; // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK, SUNGER_DOKUM
 }) {
     try {
         const { products, categories } = data;
 
-        // Her ürün için seçilen kategorilere kayıt oluştur
-        for (const product of products) {
-            // Eğer açıklama varsa, Product'a kaydet
-            if (product.description) {
-                await prisma.product.update({
-                    where: { id: product.id },
-                    data: { description: product.description }
-                });
+        // Fetch original quantities map once to avoid N queries
+        const productRecords = await prisma.product.findMany({
+            where: { id: { in: products.map(p => p.id) } },
+            select: { id: true, quantity: true }
+        });
+        const qtyMap = new Map<number, number>();
+        productRecords.forEach(p => qtyMap.set(p.id, p.quantity));
+
+        // Use transaction to ensure connection efficiency
+        await prisma.$transaction(async (tx) => {
+            const updatePromises = products
+                .filter(p => p.description)
+                .map(p => tx.product.update({
+                    where: { id: p.id },
+                    data: { description: p.description }
+                }));
+
+            await Promise.all(updatePromises);
+
+            const upsertPromises: Promise<any>[] = [];
+            for (const product of products) {
+                const originalQty = qtyMap.get(product.id) ?? product.quantity;
+
+                for (const category of categories) {
+                    upsertPromises.push(
+                        tx.semiFinishedProduction.upsert({
+                            where: {
+                                productId_category: {
+                                    productId: product.id,
+                                    category
+                                }
+                            },
+                            update: {
+                                targetQty: originalQty
+                            },
+                            create: {
+                                productId: product.id,
+                                category,
+                                targetQty: originalQty,
+                                producedQty: 0,
+                                status: "PENDING"
+                            }
+                        })
+                    );
+                }
             }
 
-            for (const category of categories) {
-                // Eğer zaten varsa güncelle, yoksa oluştur
-                await prisma.semiFinishedProduction.upsert({
-                    where: {
-                        productId_category: {
-                            productId: product.id,
-                            category
-                        }
-                    },
-                    update: {
-                        targetQty: {
-                            increment: product.quantity // Ürünün kendi miktarını ekle
-                        }
-                    },
-                    create: {
-                        productId: product.id,
-                        category,
-                        targetQty: product.quantity, // Ürünün kendi miktarını kullan
-                        producedQty: 0,
-                        status: "PENDING"
-                    }
-                });
-            }
-        }
+            await Promise.all(upsertPromises);
+        });
 
         revalidatePath("/dashboard/semi-finished-production");
         revalidatePath("/dashboard/production-planning");
@@ -68,14 +102,18 @@ export async function getSemiFinishedProductionByCategory(category: string) {
                         name: true,
                         model: true,
                         description: true,
+                        dstAdi: true,
+                        master: true, // Usta bilgisi
                         aciklama1: true,
                         aciklama2: true,
                         aciklama3: true,
                         aciklama4: true,
+                        terminDate: true,
                         order: {
                             select: {
                                 name: true,
-                                company: true
+                                company: true,
+                                customerName: true
                             }
                         }
                     }
@@ -92,7 +130,7 @@ export async function getSemiFinishedProductionByCategory(category: string) {
 }
 
 // Worker'ın üretim miktarını güncelle
-export async function updateSemiFinishedProductionQty(id: number, producedQty: number) {
+export async function updateSemiFinishedProductionQty(id: number, producedQty: number, expectedUpdatedAt?: Date) {
     try {
         const item = await prisma.semiFinishedProduction.findUnique({
             where: { id }
@@ -102,12 +140,19 @@ export async function updateSemiFinishedProductionQty(id: number, producedQty: n
             return { error: "Kayıt bulunamadı" };
         }
 
+        // Optimistic Concurrency Control Check
+        if (expectedUpdatedAt && item.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()) {
+            return { error: "DATA_MODIFIED", message: "Bu kayıt başka bir kullanıcı tarafından değiştirildi. Lütfen sayfayı yenileyin." };
+        }
+
         // Status güncelle
         let status = "PENDING";
+        let completedAt = null;
         if (producedQty > 0 && producedQty < item.targetQty) {
             status = "IN_PROGRESS";
         } else if (producedQty >= item.targetQty) {
             status = "COMPLETED";
+            completedAt = new Date();
         }
 
         await prisma.semiFinishedProduction.update({
@@ -115,6 +160,74 @@ export async function updateSemiFinishedProductionQty(id: number, producedQty: n
             data: {
                 producedQty,
                 status,
+                ...(completedAt ? { completedAt } : {}),
+                updatedAt: new Date()
+            }
+        });
+
+        // Yarı mamül tamamlandıysa ve ürünün storedQty'si varsa:
+        // producedQty <= storedQty ise storedQty'yi üzerine yaz (ekleme, set yap)
+        // producedQty > storedQty ise dokunma
+        if (status === "COMPLETED") {
+            const product = await prisma.product.findUnique({
+                where: { id: item.productId },
+                select: { storedQty: true }
+            });
+            const currentStoredQty = product?.storedQty ?? 0;
+
+            if (currentStoredQty > 0 && producedQty <= currentStoredQty) {
+                await prisma.product.update({
+                    where: { id: item.productId },
+                    data: { storedQty: producedQty }
+                });
+            }
+            // producedQty > currentStoredQty ise dokunma
+        }
+
+        revalidatePath("/dashboard/semi-finished-production");
+        return { success: true };
+    } catch (error) {
+        console.error("Error updating semi-finished production qty:", error);
+        return { error: "Güncelleme sırasında hata oluştu" };
+    }
+}
+
+// Admin'in hedef miktarını güncelle
+export async function updateSemiFinishedProductionTarget(id: number, targetQty: number, expectedUpdatedAt?: Date) {
+    try {
+        const item = await prisma.semiFinishedProduction.findUnique({
+            where: { id }
+        });
+
+        if (!item) {
+            return { error: "Kayıt bulunamadı" };
+        }
+
+        // Optimistic Concurrency Control Check
+        if (expectedUpdatedAt && item.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()) {
+            return { error: "DATA_MODIFIED", message: "Bu kayıt başka bir kullanıcı tarafından değiştirildi. Lütfen sayfayı yenileyin." };
+        }
+
+        if (targetQty < item.producedQty) {
+            return { error: "Hedef miktar, üretilen miktardan az olamaz" };
+        }
+
+        // Status güncelle
+        let status = "PENDING";
+        let completedAt = null;
+        if (item.producedQty > 0 && item.producedQty < targetQty) {
+            status = "IN_PROGRESS";
+        } else if (item.producedQty >= targetQty) {
+            status = "COMPLETED";
+            completedAt = new Date();
+        }
+
+        await prisma.semiFinishedProduction.update({
+            where: { id },
+            data: {
+                targetQty,
+                status,
+                ...(completedAt ? { completedAt } : {}),
                 updatedAt: new Date()
             }
         });
@@ -122,8 +235,28 @@ export async function updateSemiFinishedProductionQty(id: number, producedQty: n
         revalidatePath("/dashboard/semi-finished-production");
         return { success: true };
     } catch (error) {
-        console.error("Error updating semi-finished production qty:", error);
-        return { error: "Güncelleme sırasında hata oluştu" };
+        console.error("Error updating semi-finished production target:", error);
+        return { error: "Hedef güncelleme sırasında hata oluştu" };
+    }
+}
+
+// Mal fazlası miktarını güncelle (sadece konfeksiyon için)
+export async function updateSemiFinishedSurplusQty(id: number, surplusQty: number) {
+    try {
+        if (surplusQty < 0) {
+            return { error: "Mal fazlası miktarı negatif olamaz" };
+        }
+
+        await prisma.semiFinishedProduction.update({
+            where: { id },
+            data: { surplusQty, updatedAt: new Date() }
+        });
+
+        revalidatePath("/dashboard/semi-finished-production");
+        return { success: true };
+    } catch (error) {
+        console.error("Error updating surplus qty:", error);
+        return { error: "Mal fazlası güncellenirken hata oluştu" };
     }
 }
 
@@ -145,7 +278,7 @@ export async function removeSemiFinishedProduction(id: number) {
 // Tüm kategoriler için özet
 export async function getSemiFinishedProductionSummary() {
     try {
-        const categories = ["METAL", "KONFEKSIYON", "AHSAP_BOYA", "AHSAP_ISKELET"];
+        const categories = ["METAL", "KONFEKSIYON", "AHSAP_BOYA", "AHSAP_ISKELET", "PLASTIK", "SUNGER_DOKUM"];
         const summary = await Promise.all(
             categories.map(async (category) => {
                 const items = await prisma.semiFinishedProduction.findMany({
@@ -221,8 +354,9 @@ export async function addManualSemiFinishedProduction(data: {
     }
 }
 
-// Admin'in ürün açıklamalarını güncellemesi (aciklama1-4)
+// Admin'in ürün açıklamalarını güncellemesi (aciklama1-4 ve description)
 export async function updateProductNotes(productId: number, data: {
+    description?: string;
     aciklama1?: string;
     aciklama2?: string;
     aciklama3?: string;
@@ -232,6 +366,7 @@ export async function updateProductNotes(productId: number, data: {
         await prisma.product.update({
             where: { id: productId },
             data: {
+                description: data.description || null,
                 aciklama1: data.aciklama1 || null,
                 aciklama2: data.aciklama2 || null,
                 aciklama3: data.aciklama3 || null,

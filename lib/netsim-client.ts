@@ -53,6 +53,7 @@ export interface NetSimOrderDetail {
   ACIKLAMA2: string | null;
   ACIKLAMA3: string | null;
   ACIKLAMA4: string | null;
+  SIPARIS_ACIKLAMA: string | null;
   TESLIM_TAAHHUT_TARIHI: string | null;
   DSTOK_NO?: number;
   DST_ADI?: string | null;
@@ -324,12 +325,14 @@ class NetSimClient {
         d.ACIKLAMA2,
         d.ACIKLAMA3,
         d.ACIKLAMA4,
+        a.ACIKLAMA as SIPARIS_ACIKLAMA,
         d.TESLIM_TAAHHUT_TARIHI,
         d.DSTOK_NO,
         ds.STOK_ADI as DST_ADI
       FROM ALSADETA d
       LEFT JOIN STOKKART s ON d.STOK_NO = s.STOK_NO
       LEFT JOIN STOKKART ds ON d.DSTOK_NO = ds.STOK_NO
+      LEFT JOIN ALSAASIL a ON d.ALISSATIS_NO = a.ALISSATIS_NO
       WHERE d.ALISSATIS_NO = ${alissatisNo}
       ORDER BY d.SIRA_NO
     `;

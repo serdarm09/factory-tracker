@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ScanBarcode, Focus, Volume2, VolumeX, RotateCcw, CheckCircle2, AlertCircle, Package, Warehouse } from "lucide-react";
+import { Loader2, ScanBarcode, Focus, Volume2, VolumeX, RotateCcw, CheckCircle2, AlertCircle, Package, Warehouse, Printer } from "lucide-react";
 import { ProductionQueueTable } from "@/components/production-queue-table";
+import { BarcodeLabelPrint } from "@/components/barcode-label-print";
 
 export default function ProductionPage() {
     const [barcode, setBarcode] = useState("");
@@ -19,42 +20,76 @@ export default function ProductionPage() {
     const [scanMode, setScanMode] = useState(true);
     const [soundEnabled, setSoundEnabled] = useState(true);
     const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
+    const [barcodePrintProduct, setBarcodePrintProduct] = useState<{ barcode: string; name: string; model: string; company?: string; dstAdi?: string; fabricType?: string; } | null>(null);
+
+    // Kuyruk listesi
+    const [queueList, setQueueList] = useState<any[]>([]);
+    const [queueLoading, setQueueLoading] = useState(true);
 
     const barcodeInputRef = useRef<HTMLInputElement>(null);
     const quantityInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-focus barcode input on mount and when scan mode is active
+    // Kuyruk fetch fonksiyonu - doğrudan çağrılabilir
+    const fetchQueue = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/production/queue?_t=${Date.now()}`, { cache: 'no-store' });
+            const data = await res.json();
+            setQueueList(data);
+        } catch {
+            // ignore
+        } finally {
+            setQueueLoading(false);
+        }
+    }, []);
+
+    // Optimistik güncelleme: ürünü listeden hemen çıkar, ardından sunucudan tazele
+    // Server action DB'yi zaten tamamladıktan sonra çağrılır, gecikmeye gerek yok
+    const removeFromQueue = useCallback((productId: number, transferredQty: number) => {
+        setQueueList(prev => prev
+            .map(item => item.id === productId
+                ? { ...item, packagedQty: Math.max(0, (item.packagedQty || 0) - transferredQty) }
+                : item
+            )
+            .filter(item => (item.packagedQty || 0) > 0)
+        );
+        // Hemen taze veri çek - DB zaten güncellendi
+        fetchQueue();
+    }, [fetchQueue]);
+
+    // İlk yükleme + 10sn polling
+    useEffect(() => {
+        fetchQueue();
+        const interval = setInterval(fetchQueue, 10000);
+        return () => clearInterval(interval);
+    }, [fetchQueue]);
+
+    // Scan modu focus
     useEffect(() => {
         if (scanMode && barcodeInputRef.current) {
             barcodeInputRef.current.focus();
         }
     }, [scanMode]);
 
-    // Re-focus barcode input after product is cleared
     useEffect(() => {
         if (!product && scanMode && barcodeInputRef.current) {
             barcodeInputRef.current.focus();
         }
     }, [product, scanMode]);
 
-    // Play beep sound for feedback
     const playBeep = useCallback((success: boolean) => {
         if (!soundEnabled) return;
         try {
             const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
-
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
-
             oscillator.frequency.value = success ? 800 : 300;
             oscillator.type = 'sine';
             gainNode.gain.value = 0.3;
-
             oscillator.start();
             oscillator.stop(audioContext.currentTime + (success ? 0.1 : 0.3));
-        } catch (e) {
+        } catch {
             // Audio not supported
         }
     }, [soundEnabled]);
@@ -71,7 +106,6 @@ export default function ProductionPage() {
         try {
             const p = await getProductByBarcode(barcode.trim());
             if (p) {
-                // Paketlenmiş ürün kontrolü
                 if ((p.packagedQty || 0) <= 0) {
                     setMsgType("error");
                     setMsg("Bu ürün henüz paketlenmemiş. Önce paketleme işlemini tamamlayın.");
@@ -83,32 +117,31 @@ export default function ProductionPage() {
                     setMsgType("success");
                     setMsg("Ürün bulundu! Depoya giriş yapabilirsiniz.");
                     playBeep(true);
-                    // Focus quantity input after successful scan
                     setTimeout(() => quantityInputRef.current?.focus(), 100);
                 }
             } else {
                 setMsgType("error");
                 setMsg("Ürün bulunamadı");
                 playBeep(false);
-                // Re-focus barcode input for next scan
                 barcodeInputRef.current?.focus();
                 barcodeInputRef.current?.select();
             }
-        } catch (err) {
+        } catch {
             setMsgType("error");
             setMsg("Ürün getirilirken hata oluştu");
             playBeep(false);
         }
         setLoading(false);
-    }
+    };
 
     const handleSubmit = async () => {
         if (!product || !quantity) return;
         setLoading(true);
         const qtyNum = parseInt(quantity);
+        const productId = product.id;
 
         const res = await transferToWarehouse({
-            productId: product.id,
+            productId,
             quantity: qtyNum,
             shelf: shelf || undefined
         });
@@ -125,11 +158,12 @@ export default function ProductionPage() {
             setBarcode("");
             setQuantity("");
             setShelf("");
-            // Re-focus barcode input for next scan
+            // Optimistik: ürünü listeden anında kaldır, sonra sunucudan tazele
+            removeFromQueue(productId, qtyNum);
             setTimeout(() => barcodeInputRef.current?.focus(), 100);
         }
         setLoading(false);
-    }
+    };
 
     const handleReset = () => {
         setProduct(null);
@@ -138,15 +172,15 @@ export default function ProductionPage() {
         setShelf("");
         setMsg("");
         barcodeInputRef.current?.focus();
-    }
+    };
 
     const focusBarcodeInput = () => {
         barcodeInputRef.current?.focus();
         barcodeInputRef.current?.select();
-    }
+    };
 
     return (
-        <div className="space-y-6 max-w-5xl mx-auto">
+        <div className="space-y-8 max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h2 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -178,7 +212,7 @@ export default function ProductionPage() {
                 </div>
             </div>
 
-            {/* Barcode Scanner Card */}
+            {/* Barkod Okutma */}
             <Card className={`border-2 transition-all ${scanMode ? "border-green-500 shadow-lg shadow-green-100" : "border-slate-200"}`}>
                 <CardHeader className={scanMode ? "bg-green-50" : ""}>
                     <div className="flex items-center justify-between">
@@ -236,34 +270,22 @@ export default function ProductionPage() {
                         </div>
                     </form>
 
-                    {/* Quick Action Buttons for Barcode Machine */}
                     <div className="flex flex-wrap gap-2 pt-2 border-t">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleReset}
-                            className="flex-1 sm:flex-none"
-                        >
+                        <Button variant="outline" size="sm" onClick={handleReset} className="flex-1 sm:flex-none">
                             <RotateCcw className="mr-2 h-4 w-4" />
                             Sıfırla
                         </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={focusBarcodeInput}
-                            className="flex-1 sm:flex-none"
-                        >
+                        <Button variant="outline" size="sm" onClick={focusBarcodeInput} className="flex-1 sm:flex-none">
                             <Focus className="mr-2 h-4 w-4" />
                             Yeni Tarama
                         </Button>
                     </div>
 
-                    {/* Status Message */}
                     {msg && (
                         <div className={`flex items-center gap-2 p-3 rounded-lg ${msgType === "success"
                             ? "bg-green-50 text-green-700 border border-green-200"
                             : "bg-red-50 text-red-700 border border-red-200"
-                            }`}>
+                        }`}>
                             {msgType === "success"
                                 ? <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
                                 : <AlertCircle className="h-5 w-5 flex-shrink-0" />
@@ -274,7 +296,7 @@ export default function ProductionPage() {
                 </CardContent>
             </Card>
 
-            {/* Product Detail Card - Depoya Giriş Formu */}
+            {/* Ürün Detay - Depoya Giriş Formu */}
             {product && (
                 <Card className="border-2 border-green-500 shadow-lg shadow-green-100">
                     <CardHeader className="bg-green-50">
@@ -286,9 +308,27 @@ export default function ProductionPage() {
                                 </CardTitle>
                                 <p className="text-sm text-green-700 mt-1">Model: {product.model}</p>
                                 {product.barcode && (
-                                    <Badge variant="outline" className="mt-2 font-mono">
-                                        Barkod: {product.barcode}
-                                    </Badge>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <Badge variant="outline" className="font-mono">
+                                            Barkod: {product.barcode}
+                                        </Badge>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="gap-1 h-7 text-xs"
+                                            onClick={() => setBarcodePrintProduct({
+                                                barcode: product.barcode,
+                                                name: product.name,
+                                                model: product.model,
+                                                company: product.order?.company,
+                                                dstAdi: product.dstAdi,
+                                                fabricType: product.fabricType,
+                                            })}
+                                        >
+                                            <Printer className="h-3 w-3" />
+                                            Etiket Yazdır
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                             <Button
@@ -322,7 +362,6 @@ export default function ProductionPage() {
                             </div>
                         </div>
 
-                        {/* NetSim Açıklamaları */}
                         {(product.aciklama1 || product.aciklama2 || product.aciklama3 || product.aciklama4) && (
                             <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
                                 <h4 className="text-sm font-semibold text-amber-800 mb-2">Sipariş Notları</h4>
@@ -382,7 +421,6 @@ export default function ProductionPage() {
                                 </div>
                             </div>
 
-                            {/* Large Submit Button for Touch/Barcode Scanner Workflow */}
                             <Button
                                 onClick={handleSubmit}
                                 className="w-full h-16 text-xl bg-green-600 hover:bg-green-700 shadow-lg"
@@ -397,6 +435,7 @@ export default function ProductionPage() {
                 </Card>
             )}
 
+            {/* Kuyruk Listesi */}
             <Card>
                 <CardHeader>
                     <CardTitle className="text-lg md:text-xl flex items-center gap-2">
@@ -408,35 +447,20 @@ export default function ProductionPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
-                    <ProductionQueue />
+                    {queueLoading
+                        ? <div className="text-sm text-slate-500">Yükleniyor...</div>
+                        : <ProductionQueueTable products={queueList} onTransferSuccess={(id, qty) => removeFromQueue(id, qty)} />
+                    }
                 </CardContent>
             </Card>
+
+            {barcodePrintProduct && (
+                <BarcodeLabelPrint
+                    open={!!barcodePrintProduct}
+                    onOpenChange={(open) => !open && setBarcodePrintProduct(null)}
+                    product={barcodePrintProduct}
+                />
+            )}
         </div>
-    )
-}
-
-function ProductionQueue() {
-    const [list, setList] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchQueue = () => {
-            fetch('/api/production/queue')
-                .then(res => res.json())
-                .then(data => {
-                    setList(data);
-                    setLoading(false);
-                })
-                .catch(() => setLoading(false));
-        };
-
-        fetchQueue();
-        const interval = setInterval(fetchQueue, 10000);
-        return () => clearInterval(interval);
-    }, []);
-
-    if (loading) return <div className="text-sm text-slate-500">Yükleniyor...</div>;
-    // We pass empty list if no data, let table handle empty state
-
-    return <ProductionQueueTable products={list} />;
+    );
 }

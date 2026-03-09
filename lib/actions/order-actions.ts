@@ -186,3 +186,87 @@ export async function getOrderForClone(orderId: number) {
         return { error: "Sipariş bilgileri alınamadı" };
     }
 }
+
+export async function bulkUpdateOrderProducts(orderId: number, data: {
+    terminDate?: string;
+    master?: string;
+}) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
+
+    try {
+        const updateData: any = {};
+        if (data.terminDate) updateData.terminDate = new Date(data.terminDate);
+        if (data.master !== undefined) updateData.master = data.master || null;
+
+        await prisma.product.updateMany({
+            where: { orderId },
+            data: updateData
+        });
+
+        revalidatePath("/dashboard/planning");
+        return { success: true };
+    } catch (e) {
+        console.error("Bulk update error:", e);
+        return { error: "Toplu güncelleme sırasında hata oluştu" };
+    }
+}
+
+export async function bulkUpdateSelectedProducts(productIds: number[], data: {
+    terminDate?: string;
+    master?: string;
+    company?: string;
+}) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
+
+    const userId = parseInt((session.user as any).id);
+
+    try {
+        const updateData: any = {};
+        if (data.terminDate) updateData.terminDate = new Date(data.terminDate);
+        if (data.master !== undefined) updateData.master = data.master || null;
+
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, status: true, systemCode: true, orderId: true }
+        });
+
+        // Update the Order's company if provided
+        if (data.company) {
+            const orderIds = Array.from(new Set(products.map(p => p.orderId).filter(id => id !== null)));
+            if (orderIds.length > 0) {
+                await prisma.order.updateMany({
+                    where: { id: { in: orderIds as number[] } },
+                    data: { company: data.company, customerName: data.company }
+                });
+            }
+        }
+
+        const draftProductIds = products.filter(p => p.status === "DRAFT").map(p => p.id);
+        const nonDraftProductIds = products.filter(p => p.status !== "DRAFT").map(p => p.id);
+
+        if (draftProductIds.length > 0) {
+            await prisma.product.updateMany({
+                where: { id: { in: draftProductIds } },
+                data: { ...updateData, status: "PENDING" }
+            });
+            for (const product of products.filter(p => p.status === "DRAFT")) {
+                await createAuditLog("BULK_SEND_TO_APPROVAL", "Product", product.systemCode, `Ürün toplu atama ile onaya gönderildi`, userId);
+            }
+        }
+
+        if (nonDraftProductIds.length > 0) {
+            await prisma.product.updateMany({
+                where: { id: { in: nonDraftProductIds } },
+                data: updateData
+            });
+        }
+
+        revalidatePath("/dashboard/planning");
+        return { success: true };
+    } catch (e) {
+        console.error("Bulk update selected error:", e);
+        return { error: "Toplu güncelleme sırasında hata oluştu" };
+    }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { DeleteProductButton } from "@/components/delete-product-button";
 import { ExportButton } from "@/components/export-button";
-import { Filter, X, Search, AlertTriangle, Megaphone, ArrowUpDown } from "lucide-react";
+import { Filter, X, Search, AlertTriangle, Megaphone, ArrowUpDown, ChevronDown, Building2 } from "lucide-react";
 
 interface PendingApprovalsTableProps {
     pendingProducts: any[];
@@ -30,8 +31,6 @@ interface PendingApprovalsTableProps {
 export function PendingApprovalsTable({ pendingProducts, userRole }: PendingApprovalsTableProps) {
     const [selectedProduct, setSelectedProduct] = useState<any>(null);
     const [isOpen, setIsOpen] = useState(false);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(25);
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
     // Sorting state
@@ -119,12 +118,11 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
         setFilterPlanner("");
         setFilterDateFrom("");
         setFilterDateTo("");
-        setCurrentPage(1);
     };
 
-    // Reset to page 1 when filters change
+    // Filters reset - no pagination needed
     useMemo(() => {
-        setCurrentPage(1);
+        // kept for memoization side-effects
     }, [filterProduct, filterCompany, filterPlanner, filterDateFrom, filterDateTo]);
 
     const handleRowClick = (product: any) => {
@@ -142,12 +140,16 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
         setSelectedIds(newSet);
     };
 
-    const toggleSelectAll = () => {
-        if (selectedIds.size === paginatedProducts.length) {
-            setSelectedIds(new Set());
+    const toggleSelectAll = (products: any[]) => {
+        const allIds = products.map((p: any) => p.id);
+        const allSelected = allIds.every(id => selectedIds.has(id));
+        const newSet = new Set(selectedIds);
+        if (allSelected) {
+            allIds.forEach(id => newSet.delete(id));
         } else {
-            setSelectedIds(new Set(paginatedProducts.map((p: any) => p.id)));
+            allIds.forEach(id => newSet.add(id));
         }
+        setSelectedIds(newSet);
     };
 
     const clearSelection = () => setSelectedIds(new Set());
@@ -244,12 +246,16 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
         return sorted;
     }, [filteredProducts, sortConfig]);
 
-    // Pagination - sortedFilteredProducts kullan
-    const totalPages = Math.ceil(sortedFilteredProducts.length / itemsPerPage);
-    const paginatedProducts = sortedFilteredProducts.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
-    );
+    // Group filtered products by company
+    const groupedByCompany = useMemo(() => {
+        const groups: Record<string, any[]> = {};
+        sortedFilteredProducts.forEach(p => {
+            const company = p.order?.company || p.company || "Firma Belirtilmemiş";
+            if (!groups[company]) groups[company] = [];
+            groups[company].push(p);
+        });
+        return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, 'tr'));
+    }, [sortedFilteredProducts]);
 
     // SortHead komponenti
     const SortHead = ({ label, sortKey }: { label: string; sortKey: string }) => (
@@ -425,134 +431,152 @@ export function PendingApprovalsTable({ pendingProducts, userRole }: PendingAppr
                 />
             </div>
 
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        {canManage && (
-                            <TableHead className="w-[40px]">
-                                <Checkbox
-                                    checked={paginatedProducts.length > 0 && selectedIds.size === paginatedProducts.length}
-                                    onCheckedChange={toggleSelectAll}
-                                />
-                            </TableHead>
-                        )}
-                        <SortHead label="Urun" sortKey="name" />
-                        <SortHead label="Planlayan" sortKey="planner" />
-                        <SortHead label="Malzeme" sortKey="material" />
-                        <TableHead>Not</TableHead>
-                        <SortHead label="Firma" sortKey="company" />
-                        <SortHead label="Giris Tarihi" sortKey="createdAt" />
-                        <SortHead label="Termin" sortKey="terminDate" />
-                        <SortHead label="Adet" sortKey="quantity" />
-                        <TableHead>Islem</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {paginatedProducts.map(p => {
-                        const fromMarketing = isMarketingReject(p);
+            {/* Accordion grouped by company */}
+            <div className="space-y-2">
+                {groupedByCompany.length === 0 && (
+                    <div className="text-center py-8 text-slate-500">Onay bekleyen ürün yok.</div>
+                )}
+                <Accordion
+                    type="multiple"
+                    className="space-y-2"
+                >
+                    {groupedByCompany.map(([company, companyProducts]) => {
+                        const companySelectedCount = companyProducts.filter(p => selectedIds.has(p.id)).length;
+                        const allCompanySelected = companyProducts.length > 0 && companySelectedCount === companyProducts.length;
+                        const hasMarketingReject = companyProducts.some(p => isMarketingReject(p));
+
                         return (
-                            <TableRow
-                                key={p.id}
-                                className={`cursor-pointer hover:bg-slate-50 transition-colors ${selectedIds.has(p.id) ? 'bg-blue-50' : ''} ${fromMarketing ? 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500' : ''}`}
-                                onClick={() => handleRowClick(p)}
+                            <AccordionItem
+                                key={company}
+                                value={company}
+                                className={`border rounded-lg overflow-hidden ${hasMarketingReject ? 'border-red-300' : 'border-slate-200'
+                                    }`}
                             >
-                                {canManage && (
-                                    <TableCell onClick={(e) => e.stopPropagation()}>
-                                        <Checkbox
-                                            checked={selectedIds.has(p.id)}
-                                            onCheckedChange={() => toggleSelection(p.id)}
-                                        />
-                                    </TableCell>
-                                )}
-                                <TableCell>
-                                    <div className="flex items-center gap-3">
-                                        {p.imageUrl && (
-                                            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-slate-100">
-                                                <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
-                                            </div>
-                                        )}
-                                        <div>
-                                            <div className="font-bold flex items-center gap-2">
-                                                {p.name}
-                                                {fromMarketing && (
-                                                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
-                                                        <Megaphone className="h-3 w-3 mr-1" />
-                                                        Pazarlamadan Red
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-slate-500">{p.model}</div>
-                                            <div className="text-xs text-slate-400">{p.systemCode}</div>
-                                        </div>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-sm font-medium text-blue-600">
-                                    {(p.creator as any)?.username || '-'}
-                                </TableCell>
-                                <TableCell className="text-sm">{p.material || '-'}</TableCell>
-                                <TableCell className="max-w-[150px] text-sm">
-                                    {fromMarketing && p.rejectionReason ? (
-                                        <div className="bg-red-100 border border-red-200 rounded p-1.5">
-                                            <div className="flex items-center gap-1 text-red-700 font-medium text-xs mb-0.5">
-                                                <AlertTriangle className="h-3 w-3" />
-                                                Red Nedeni:
-                                            </div>
-                                            <p className="text-red-800 text-xs">{p.rejectionReason}</p>
-                                        </div>
-                                    ) : (
-                                        <span className="truncate block" title={p.description || ''}>
-                                            {p.description || '-'}
-                                        </span>
-                                    )}
-                                </TableCell>
-                                <TableCell>{p.order?.company || p.company || '-'}</TableCell>
-                                <TableCell>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
-                                <TableCell className="text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
-                                <TableCell>{p.quantity}</TableCell>
-                                <TableCell>
-                                    <div onClick={(e) => e.stopPropagation()} className="flex">
-                                        <ApproveButton
-                                            action={approveProduct.bind(null, p.id)}
-                                            label="Onayla"
-                                        />
-                                        <RejectButton action={rejectProduct.bind(null, p.id)} />
+                                <AccordionTrigger className={`px-4 py-3 hover:no-underline ${hasMarketingReject ? 'bg-red-50 hover:bg-red-100' : 'bg-slate-50 hover:bg-slate-100'
+                                    }`}>
+                                    <div className="flex items-center gap-3 w-full mr-2">
                                         {canManage && (
-                                            <DeleteProductButton productId={p.id} productName={p.name} />
+                                            <div onClick={(e) => { e.stopPropagation(); toggleSelectAll(companyProducts); }}>
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                                                    checked={allCompanySelected}
+                                                    onChange={() => { }}
+                                                    readOnly
+                                                />
+                                            </div>
                                         )}
+                                        <Building2 className={`h-4 w-4 flex-shrink-0 ${hasMarketingReject ? 'text-red-600' : 'text-slate-500'
+                                            }`} />
+                                        <span className="font-semibold text-sm">{company}</span>
+                                        {hasMarketingReject && (
+                                            <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                <Megaphone className="h-3 w-3" /> Pazarlama Reddi
+                                            </span>
+                                        )}
+                                        <span className="ml-auto text-xs text-slate-500 font-normal">
+                                            {companyProducts.length} ürün
+                                            {companySelectedCount > 0 && (
+                                                <span className="ml-2 text-blue-600 font-medium">({companySelectedCount} seçili)</span>
+                                            )}
+                                        </span>
                                     </div>
-                                </TableCell>
-                            </TableRow>
+                                </AccordionTrigger>
+                                <AccordionContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-white">
+                                                {canManage && <TableHead className="w-[40px]"></TableHead>}
+                                                <SortHead label="Ürün" sortKey="name" />
+                                                <SortHead label="Planlayan" sortKey="planner" />
+                                                <SortHead label="Malzeme" sortKey="material" />
+                                                <TableHead>Not</TableHead>
+                                                <SortHead label="Giriş" sortKey="createdAt" />
+                                                <SortHead label="Termin" sortKey="terminDate" />
+                                                <SortHead label="Adet" sortKey="quantity" />
+                                                <TableHead>İşlem</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {companyProducts.map(p => {
+                                                const fromMarketing = isMarketingReject(p);
+                                                return (
+                                                    <TableRow
+                                                        key={p.id}
+                                                        className={`cursor-pointer hover:bg-slate-50 transition-colors ${selectedIds.has(p.id) ? 'bg-blue-50' : ''} ${fromMarketing ? 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500' : ''}`}
+                                                        onClick={() => handleRowClick(p)}
+                                                    >
+                                                        {canManage && (
+                                                            <TableCell onClick={(e) => e.stopPropagation()}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                                                                    checked={selectedIds.has(p.id)}
+                                                                    onChange={() => toggleSelection(p.id)}
+                                                                />
+                                                            </TableCell>
+                                                        )}
+                                                        <TableCell>
+                                                            <div className="flex items-center gap-3">
+                                                                {p.imageUrl && (
+                                                                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-slate-100">
+                                                                        <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
+                                                                    </div>
+                                                                )}
+                                                                <div>
+                                                                    <div className="font-bold flex items-center gap-2">
+                                                                        {p.name}
+                                                                        {fromMarketing && (
+                                                                            <span className="text-[10px] bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                                                                <Megaphone className="h-3 w-3" /> Pazarlama Red
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-xs text-slate-500">{p.model}</div>
+                                                                    <div className="text-xs text-slate-400">{p.systemCode}</div>
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-sm font-medium text-blue-600">
+                                                            {(p.creator as any)?.username || '-'}
+                                                        </TableCell>
+                                                        <TableCell className="text-sm">{p.material || '-'}</TableCell>
+                                                        <TableCell className="max-w-[150px] text-sm">
+                                                            {fromMarketing && p.rejectionReason ? (
+                                                                <div className="bg-red-100 border border-red-200 rounded p-1.5">
+                                                                    <div className="flex items-center gap-1 text-red-700 font-medium text-xs mb-0.5">
+                                                                        <AlertTriangle className="h-3 w-3" /> Red Nedeni:
+                                                                    </div>
+                                                                    <p className="text-red-800 text-xs">{p.rejectionReason}</p>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="truncate block" title={p.description || ''}>
+                                                                    {p.description || '-'}
+                                                                </span>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</TableCell>
+                                                        <TableCell className="text-red-900 font-medium">{new Date(p.terminDate).toLocaleDateString('tr-TR')}</TableCell>
+                                                        <TableCell>{p.quantity}</TableCell>
+                                                        <TableCell>
+                                                            <div onClick={(e) => e.stopPropagation()} className="flex">
+                                                                <ApproveButton action={approveProduct.bind(null, p.id)} label="Onayla" />
+                                                                <RejectButton action={rejectProduct.bind(null, p.id)} />
+                                                                {canManage && (
+                                                                    <DeleteProductButton productId={p.id} productName={p.name} />
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </AccordionContent>
+                            </AccordionItem>
                         );
                     })}
-                    {paginatedProducts.length === 0 && (
-                        <TableRow>
-                            <TableCell colSpan={canManage ? 10 : 9} className="text-center py-4 text-slate-500">Onay bekleyen urun yok.</TableCell>
-                        </TableRow>
-                    )}
-                </TableBody>
-            </Table>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Sayfa başına:</span>
-                    <Select value={itemsPerPage.toString()} onValueChange={(v) => { setItemsPerPage(parseInt(v)); setCurrentPage(1); }}>
-                        <SelectTrigger className="w-[80px]">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="10">10</SelectItem>
-                            <SelectItem value="25">25</SelectItem>
-                            <SelectItem value="50">50</SelectItem>
-                            <SelectItem value="100">100</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={setCurrentPage}
-                    itemsPerPage={itemsPerPage}
-                    totalItems={filteredProducts.length}
-                />
+                </Accordion>
             </div>
 
             <Dialog open={isOpen} onOpenChange={setIsOpen}>

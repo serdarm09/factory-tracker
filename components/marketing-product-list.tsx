@@ -63,11 +63,11 @@ interface MarketingProductListProps {
     approvedProducts: any[];
     inProductionProducts: any[];
     completedProducts: any[];
-    shippedItems: any[];
+    shippedProducts: any[];
     userRole: string;
 }
 
-export function MarketingProductList({ marketingReviewProducts, approvedProducts, inProductionProducts, completedProducts, shippedItems, userRole }: MarketingProductListProps) {
+export function MarketingProductList({ marketingReviewProducts, approvedProducts, inProductionProducts, completedProducts, shippedProducts, userRole }: MarketingProductListProps) {
     const router = useRouter();
     const [sendingToProduction, setSendingToProduction] = useState<number | null>(null);
     const [viewProduct, setViewProduct] = useState<any>(null);
@@ -92,18 +92,9 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
         if (activeTab === "approved") return approvedProducts;
         if (activeTab === "inProduction") return inProductionProducts;
         if (activeTab === "completed") return completedProducts;
-        // For shipped tab, transform shippedItems to product-like format
-        return shippedItems.map(item => ({
-            ...item.product,
-            shippedQuantity: item.quantity,
-            shipmentDate: item.shipment.createdAt,
-            shipmentCompany: item.shipment.company,
-            shipmentDriver: item.shipment.driverName,
-            shipmentPlate: item.shipment.vehiclePlate,
-            shipmentStatus: item.shipment.status,
-            shipmentId: item.shipment.id
-        }));
-    }, [activeTab, marketingReviewProducts, approvedProducts, inProductionProducts, completedProducts, shippedItems]);
+        // For shipped tab, return shippedProducts directly
+        return shippedProducts;
+    }, [activeTab, marketingReviewProducts, approvedProducts, inProductionProducts, completedProducts, shippedProducts]);
 
     // Get unique companies for dropdown
     const uniqueCompanies = useMemo(() => {
@@ -228,12 +219,12 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                     "Ürün Kodu": p.systemCode || '',
                     "Ürün Adı": p.name || '',
                     "Model": p.model || '',
-                    "Firma": p.shipmentCompany || p.order?.company || '',
+                    "Firma": p.order?.company || '',
                     "Planlanan Adet": p.quantity,
-                    "Sevk Adedi": p.shippedQuantity || 0,
-                    "Sevk Tarihi": p.shipmentDate ? new Date(p.shipmentDate).toLocaleDateString('tr-TR') : '',
-                    "Sürücü": p.shipmentDriver || '',
-                    "Plaka": p.shipmentPlate || '',
+                    "Sevk Adedi": p.shippedQty || 0,
+                    "Sevkiyat Bilgisi": p.shipmentItems && p.shipmentItems.length > 0 ?
+                        p.shipmentItems.map((item: any) => `${item.shipment.company || 'Belirtilmedi'}`).join(', ') :
+                        'Kayıt yok',
                     "Barkod": p.barcode || '',
                 }));
             } else {
@@ -477,7 +468,7 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                     className={activeTab === "shipped" ? "bg-orange-600 hover:bg-orange-700" : ""}
                 >
                     <Truck className="h-4 w-4 mr-2" />
-                    Sevk Edilenler ({shippedItems.length})
+                    Sevk Edilenler ({shippedProducts.length})
                 </Button>
                 <div className="flex-1" />
                 <Button
@@ -545,7 +536,7 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                 <TableHead>Firma</TableHead>
                                 <TableHead>Adet</TableHead>
                                 {activeTab === "shipped" && <TableHead>Sevk Adedi</TableHead>}
-                                {activeTab === "shipped" && <TableHead>Sevk Tarihi</TableHead>}
+                                {activeTab === "shipped" && <TableHead>Sevkiyat Bilgileri</TableHead>}
                                 {activeTab !== "shipped" && <TableHead>Termin</TableHead>}
                                 <TableHead>Durum</TableHead>
                                 {activeTab === "marketingReview" && <TableHead>İşlem</TableHead>}
@@ -591,12 +582,26 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                         <TableCell className="font-bold">{p.quantity}</TableCell>
                                         {activeTab === "shipped" && (
                                             <TableCell>
-                                                <span className="font-bold text-orange-600">{p.shippedQuantity}</span>
+                                                <span className="font-bold text-orange-600">{p.shippedQty || 0}</span>
                                             </TableCell>
                                         )}
                                         {activeTab === "shipped" && (
                                             <TableCell>
-                                                {p.shipmentDate ? new Date(p.shipmentDate).toLocaleDateString('tr-TR') : '-'}
+                                                {p.shipmentItems && p.shipmentItems.length > 0 ? (
+                                                    <div className="text-xs space-y-1">
+                                                        {p.shipmentItems.map((item: any, idx: number) => (
+                                                            <div key={idx} className="text-green-700 bg-green-50 px-2 py-1 rounded">
+                                                                ✓ {item.shipment.company || 'Belirtilmedi'}
+                                                                {item.shipment.driverName && ` - ${item.shipment.driverName}`}
+                                                                {item.shipment.vehiclePlate && ` (${item.shipment.vehiclePlate})`}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                                                        ⚠ Sevkiyat kaydı yok
+                                                    </span>
+                                                )}
                                             </TableCell>
                                         )}
                                         {activeTab !== "shipped" && (

@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node enable-wal.js && next dev -H 0.0.0.0",
+    "dev": "next dev -p 3000 -H 0.0.0.0",
     "build": "next build",
-    "start": "node enable-wal.js && next start",
+    "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "eslint"
   },
   "dependencies": {
@@ -32,6 +32,7 @@
     "next-auth": "5.0.0-beta.25",
     "next-pwa": "^5.6.0",
     "next-themes": "^0.4.6",
+    "pm2": "^6.0.14",
     "prisma": "^5.10.0",
     "react": "^18",
     "react-barcode": "^1.5.3",
@@ -46,13 +47,18 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pg": "^8.16.0",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.23",
     "eslint": "^8",
     "eslint-config-next": "14.2.16",
+    "pg": "^8.18.0",
     "postcss": "^8.5.6",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
     "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }

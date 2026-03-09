@@ -101,9 +101,9 @@ export default function BarcodePage() {
 
     const printBarcodes = (productsToPrint: Product[]) => {
         const sizes = {
-            small: { width: 200, height: 120, fontSize: 10, barcodeSize: 16 },
-            medium: { width: 300, height: 180, fontSize: 12, barcodeSize: 24 },
-            large: { width: 400, height: 240, fontSize: 14, barcodeSize: 32 }
+            small: { width: 400, height: 240, fontSize: 20, barcodeSize: 32 },
+            medium: { width: 600, height: 360, fontSize: 24, barcodeSize: 48 },
+            large: { width: 800, height: 480, fontSize: 28, barcodeSize: 64 }
         };
 
         const size = sizes[printSize];

@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from "sonner";
 import { updateProductStages } from "@/lib/actions";
-import { X, Search, ArrowUpDown, Truck, Package, Wrench, CheckCircle, Clock, AlertTriangle, MessageSquare, Sofa, Hammer, BoxIcon, TrendingUp, Warehouse, Info, Edit2, Save, Users, List, Download, FileSpreadsheet, Factory } from "lucide-react";
+import { X, Search, ArrowUpDown, Truck, Package, Wrench, CheckCircle, Clock, AlertTriangle, MessageSquare, Sofa, Hammer, BoxIcon, TrendingUp, Warehouse, Info, Edit2, Save, Users, List, Download, FileSpreadsheet, Factory, Printer } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -24,6 +24,7 @@ import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import * as XLSX from 'xlsx';
 import { SendToSemiFinishedDialog } from "./send-to-semi-finished-dialog";
+import { BarcodeLabelPrint } from "./barcode-label-print";
 
 interface ProductionPlanningTableProps {
     products: any[];
@@ -58,6 +59,36 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     const [activeTab, setActiveTab] = useState("all");
     const [searchTerm, setSearchTerm] = useState("");
     const [filterCompany, setFilterCompany] = useState("");
+
+    // Hedef Ciro - localStorage'da saklanır
+    const [hedefCiro, setHedefCiro] = useState<number>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('production-hedef-ciro');
+            return saved ? Number(saved) : 0;
+        }
+        return 0;
+    });
+    const [hedefCiroInput, setHedefCiroInput] = useState<string>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('production-hedef-ciro');
+            return saved ? Number(saved).toLocaleString('tr-TR') : '';
+        }
+        return '';
+    });
+    const [isEditingHedef, setIsEditingHedef] = useState(false);
+
+    const saveHedefCiro = () => {
+        const raw = hedefCiroInput.replace(/\./g, '').replace(',', '.');
+        const val = parseFloat(raw) || 0;
+        setHedefCiro(val);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('production-hedef-ciro', String(val));
+        }
+        setHedefCiroInput(val > 0 ? val.toLocaleString('tr-TR') : '');
+        setIsEditingHedef(false);
+    };
+
+    // totalRevenue will be computed below after filteredProducts
     const [filterMaster, setFilterMaster] = useState(""); // Usta filtresi
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'terminDate', direction: 'asc' });
@@ -69,6 +100,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isPending, startTransition] = useTransition();
     const [isSemiFinishedDialogOpen, setIsSemiFinishedDialogOpen] = useState(false);
+    const [barcodePrintProduct, setBarcodePrintProduct] = useState<{ barcode: string; name: string; model: string; company?: string; dstAdi?: string; fabricType?: string; } | null>(null);
 
     // Inline edit - aşamalar için
     const [editingProduct, setEditingProduct] = useState<number | null>(null);
@@ -82,7 +114,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     });
     const [editNote, setEditNote] = useState("");
 
-    const canEdit = ["ADMIN", "ENGINEER", "PLANNER", "WORKER", "MARKETER"].includes(userRole);
+    const canEdit = ["ADMIN", "KALITE", "PLANNER", "WORKER", "MARKETER"].includes(userRole);
 
     // Benzersiz firmalar ve ustalar
     const uniqueCompanies = useMemo(() => {
@@ -114,11 +146,22 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         return p.storedQty || 0;
     };
 
-    // İlerleme yüzdesi - depo + sevk bazlı
+    // İlerleme yüzdesi - tüm aşamalar dahil
     const getProgress = (p: any): number => {
         if (p.quantity === 0) return 0;
-        const completed = (p.storedQty || 0) + (p.shippedQty || 0);
-        return Math.round((completed / p.quantity) * 100);
+
+        // Tüm aşamalardaki en yüksek değeri al (bir ürün birden fazla aşamada olamaz, ama en güncel aşama sayılır)
+        const maxStageQty = Math.max(
+            p.foamQty || 0,
+            p.upholsteryQty || 0,
+            p.assemblyQty || 0,
+            p.packagedQty || 0,
+            p.storedQty || 0,
+            p.shippedQty || 0,
+        );
+
+        if (maxStageQty >= p.quantity) return 100;
+        return Math.round((maxStageQty / p.quantity) * 100);
     };
 
     // Filtreleme
@@ -185,42 +228,47 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         return groups;
     }, [filteredProducts]);
 
-    // İstatistikler - Kısmi sevkleri de dahil et (tüm ürünler üzerinden)
+    // Tüm listelenen ürünlerin genel cirosu - filtreye göre değişir
+    const totalRevenue = useMemo(() => {
+        return filteredProducts.reduce((sum, p) => sum + ((p.unitPrice || 0) * (p.quantity || 0)), 0);
+    }, [filteredProducts]);
+
+    // İstatistikler - filtrelenmiş ürünler üzerinden
     const stats = useMemo(() => {
         // Kısmi veya tam sevk edilen ürünler (shippedQty > 0)
-        const productsWithShipments = products.filter(p => (p.shippedQty || 0) > 0);
+        const productsWithShipments = filteredProducts.filter(p => (p.shippedQty || 0) > 0);
         // Depoda bekleyen ürünler (storedQty > 0)
-        const inWarehouseProducts = products.filter(p => (p.storedQty || 0) > 0);
+        const inWarehouseProducts = filteredProducts.filter(p => (p.storedQty || 0) > 0);
 
         // Sevk edilen ciro = birim fiyat * sevk edilen miktar (kısmi dahil)
-        const shippedRevenue = products.reduce((sum, p) => {
+        const shippedRevenue = filteredProducts.reduce((sum, p) => {
             const shippedQty = p.shippedQty || 0;
             const unitPrice = p.unitPrice || 0;
             return sum + (unitPrice * shippedQty);
         }, 0);
 
         // Toplam sevk edilen adet
-        const shippedCount = products.reduce((sum, p) => sum + (p.shippedQty || 0), 0);
+        const shippedCount = filteredProducts.reduce((sum, p) => sum + (p.shippedQty || 0), 0);
 
         // Depodaki ciro = birim fiyat * depodaki miktar
-        const warehouseRevenue = products.reduce((sum, p) => {
+        const warehouseRevenue = filteredProducts.reduce((sum, p) => {
             const storedQty = p.storedQty || 0;
             const unitPrice = p.unitPrice || 0;
             return sum + (unitPrice * storedQty);
         }, 0);
 
         // Depodaki toplam adet
-        const inWarehouseCount = products.reduce((sum, p) => sum + (p.storedQty || 0), 0);
+        const inWarehouseCount = filteredProducts.reduce((sum, p) => sum + (p.storedQty || 0), 0);
 
         // Üretimdeki ciro = birim fiyat * üretimdeki miktar (foam + upholstery + assembly + packaged)
-        const inProductionRevenue = products.reduce((sum, p) => {
+        const inProductionRevenue = filteredProducts.reduce((sum, p) => {
             const inProductionQty = (p.foamQty || 0) + (p.upholsteryQty || 0) + (p.assemblyQty || 0) + (p.packagedQty || 0);
             const unitPrice = p.unitPrice || 0;
             return sum + (unitPrice * inProductionQty);
         }, 0);
 
         // Üretimdeki toplam adet
-        const inProductionCount = products.reduce((sum, p) => {
+        const inProductionCount = filteredProducts.reduce((sum, p) => {
             return sum + (p.foamQty || 0) + (p.upholsteryQty || 0) + (p.assemblyQty || 0) + (p.packagedQty || 0);
         }, 0);
 
@@ -234,7 +282,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
             inProductionRevenue,
             inProductionCount,
         };
-    }, [products]);
+    }, [filteredProducts]);
 
     // Sıralama
     const sortedProducts = useMemo(() => {
@@ -271,7 +319,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     };
 
     // Kademeli mantık: Bir aşamadaki değer değiştiğinde, sonraki aşamalar otomatik ayarlanır
-    // Mühendis: foam, upholstery, assembly, packaged düzenleyebilir
+    // Kaliteci: foam, upholstery, assembly, packaged düzenleyebilir
     // Depo girişi (stored) production sayfasından yapılır
     // Sevk işlemi (shipped) warehouse sayfasından yapılır
     // Toplam: foam + upholstery + assembly + packaged + stored + shipped <= quantity
@@ -703,15 +751,20 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-3">
             {/* Ciro ve Özet Kartları */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <Card className="bg-blue-50 border-blue-200">
-                    <CardContent className="pt-4">
+                    <CardContent className="py-2 px-3">
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-blue-600 font-medium">Toplam Ürün</p>
-                                <p className="text-2xl font-bold text-blue-700">{products.length}</p>
+                                <p className="text-2xl font-bold text-blue-700">{filteredProducts.reduce((sum, p) => sum + p.quantity, 0)} adet</p>
+                                {userRole === 'ADMIN' && (
+                                    <p className="text-xs font-semibold text-blue-600 mt-1">
+                                        {totalRevenue.toLocaleString('tr-TR')} ₺
+                                    </p>
+                                )}
                             </div>
                             <Package className="h-8 w-8 text-blue-400" />
                         </div>
@@ -719,202 +772,111 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                 </Card>
 
                 <Card className="bg-yellow-50 border-yellow-200">
-                    <CardContent className="pt-4">
+                    <CardContent className="py-2 px-3">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-yellow-600 font-medium">Üretimde</p>
-                                <p className="text-2xl font-bold text-yellow-700">{stats.inProductionCount} adet</p>
-                                {userRole === 'ADMIN' && (
-                                    <p className="text-xs font-semibold text-yellow-600 mt-1">
-                                        {stats.inProductionRevenue.toLocaleString('tr-TR')} ₺
-                                    </p>
-                                )}
+                                <p className="text-sm text-yellow-600 font-medium">Üretilen</p>
+                                <p className="text-2xl font-bold text-yellow-700">{stats.inProductionCount + stats.shippedCount} adet</p>
+
                             </div>
                             <Wrench className="h-8 w-8 text-yellow-400" />
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="bg-green-50 border-green-200">
-                    <CardContent className="pt-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-green-600 font-medium">Depoda</p>
-                                <p className="text-2xl font-bold text-green-700">{stats.inWarehouseCount} adet</p>
-                                {userRole === 'ADMIN' && (
-                                    <p className="text-xs font-semibold text-green-600 mt-1">
-                                        {stats.warehouseRevenue.toLocaleString('tr-TR')} ₺
-                                    </p>
-                                )}
-                            </div>
-                            <Warehouse className="h-8 w-8 text-green-400" />
-                        </div>
-                    </CardContent>
-                </Card>
-
                 {/* Sevk Edilen */}
                 <Card className="bg-teal-50 border-teal-200">
-                    <CardContent className="pt-4">
+                    <CardContent className="py-2 px-3">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-teal-600 font-medium">Sevk Edilen</p>
+                                <p className="text-sm text-teal-600 font-medium">Üretimde İken Sevk olan</p>
                                 <p className="text-2xl font-bold text-teal-700">{stats.shippedCount} adet</p>
-                                {userRole === 'ADMIN' && (
-                                    <p className="text-xs font-semibold text-teal-600 mt-1">
-                                        {stats.shippedRevenue.toLocaleString('tr-TR')} ₺
-                                    </p>
-                                )}
                             </div>
                             <Truck className="h-8 w-8 text-teal-400" />
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* Üretimdeki Ciro - Sadece Admin */}
+                {/* Üretimde Olan Ciro - Sadece Admin */}
                 {userRole === 'ADMIN' && (
-                    <Card className="bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-200">
-                        <CardContent className="pt-4">
+                    <Card className="bg-gradient-to-r from-blue-50 to-indigo-100 border-blue-300 col-span-1 md:col-span-3 lg:col-span-1">
+                        <CardContent className="py-2 px-3">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm text-orange-600 font-medium">Üretim Ciro</p>
-                                    <p className="text-xl font-bold text-orange-700">
-                                        {stats.inProductionRevenue.toLocaleString('tr-TR')} ₺
+                                    <p className="text-sm text-blue-600 font-medium">Üretilen Ciro</p>
+                                    <p className="text-xl font-bold text-blue-700">
+                                        {(stats.shippedRevenue + stats.inProductionRevenue).toLocaleString('tr-TR')}₺
                                     </p>
-                                    <p className="text-xs text-orange-500">{stats.inProductionCount} adet</p>
                                 </div>
-                                <Wrench className="h-8 w-8 text-orange-400" />
+                                <Wrench className="h-8 w-8 text-blue-400" />
                             </div>
                         </CardContent>
                     </Card>
                 )}
 
-                {/* Depodaki Ciro - Sadece Admin */}
-                {userRole === 'ADMIN' && (
-                    <Card className="bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200">
-                        <CardContent className="pt-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm text-emerald-600 font-medium">Depo Ciro</p>
-                                    <p className="text-xl font-bold text-emerald-700">
-                                        {stats.warehouseRevenue.toLocaleString('tr-TR')} ₺
-                                    </p>
-                                    <p className="text-xs text-emerald-500">{stats.inWarehouseCount} adet</p>
-                                </div>
-                                <Warehouse className="h-8 w-8 text-emerald-400" />
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
+
             </div>
 
-            {/* AI Bottleneck Analysis - Sadece Admin */}
+            {/* Hedef Ciro Kartı - Sadece Admin */}
             {userRole === 'ADMIN' && (
-                <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-4 flex items-start gap-4 shadow-sm">
-                    <div className="bg-white p-2 rounded-full shadow-sm">
-                        <TrendingUp className="h-6 w-6 text-orange-600" />
-                    </div>
-                    <div className="flex-1">
-                        <h4 className="text-sm font-bold text-orange-900 flex items-center gap-2">
-                            Üretim Akış Analizi
-                            <Badge variant="outline" className="bg-white text-orange-600 border-orange-200 text-[10px] h-5">
-                                Yapay Zeka Destekli
-                            </Badge>
-                        </h4>
-
-                        {(() => {
-                            // Calculate totals for each stage
-                            const stageTotals = {
-                                foam: products.reduce((sum, p) => sum + (p.foamQty || 0), 0),
-                                upholstery: products.reduce((sum, p) => sum + (p.upholsteryQty || 0), 0),
-                                assembly: products.reduce((sum, p) => sum + (p.assemblyQty || 0), 0),
-                                packaged: products.reduce((sum, p) => sum + (p.packagedQty || 0), 0),
-                            };
-
-                            // Find bottleneck
-                            const entries = Object.entries(stageTotals);
-                            const sorted = entries.sort(([, a], [, b]) => b - a);
-                            const [maxStage, maxCount] = sorted[0];
-
-                            const stageLabels: Record<string, string> = {
-                                foam: 'Sünger',
-                                upholstery: 'Döşeme',
-                                assembly: 'Montaj',
-                                packaged: 'Paketleme'
-                            };
-
-                            if (maxCount === 0) return <p className="text-sm text-orange-800 mt-1">Üretim hattında şu an aktif yük bulunmuyor.</p>;
-
-                            return (
-                                <div className="mt-2 text-sm text-orange-800">
-                                    <p className="mb-1">
-                                        <span className="font-semibold">⚠️ Darboğaz Tespiti:</span> En yüksek yoğunluk <strong>{stageLabels[maxStage]}</strong> aşamasında ({maxCount} adet).
-                                    </p>
-                                    <p className="text-xs opacity-80">
-                                        Öneri: {stageLabels[maxStage]} bölümüne ek kaynak kaydırılması, toplam üretim hızını artırabilir.
-                                    </p>
-
-                                    <div className="mt-3 grid grid-cols-4 gap-2">
-                                        {(['foam', 'upholstery', 'assembly', 'packaged'] as const).map(stage => (
-                                            <div key={stage} className={`text-xs p-2 rounded border text-center ${stage === maxStage ? 'bg-orange-100 border-orange-300 font-bold' : 'bg-white border-orange-100'}`}>
-                                                <div className="text-slate-500 mb-1">{stageLabels[stage]}</div>
-                                                <div className="text-lg">{stageTotals[stage]}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                </div>
-            )}
-
-            {/* Sekmeler */}
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid grid-cols-6 w-full max-w-3xl">
-                    <TabsTrigger value="all" className="gap-1 text-xs">
-                        <Package className="h-4 w-4" />
-                        Tümü ({products.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="APPROVED" className="gap-1 text-xs">
-                        <Clock className="h-4 w-4" />
-                        Bekliyor ({products.filter(p => p.status === "APPROVED").length})
-                    </TabsTrigger>
-                    <TabsTrigger value="IN_PRODUCTION" className="gap-1 text-xs">
-                        <Wrench className="h-4 w-4" />
-                        Üretimde ({products.filter(p => p.status === "IN_PRODUCTION").length})
-                    </TabsTrigger>
-                    <TabsTrigger value="IN_WAREHOUSE" className="gap-1 text-xs">
-                        <Warehouse className="h-4 w-4" />
-                        Depoda ({stats.inWarehouseProductCount})
-                    </TabsTrigger>
-                    <TabsTrigger value="COMPLETED" className="gap-1 text-xs">
-                        <CheckCircle className="h-4 w-4" />
-                        Bitti ({products.filter(p => p.status === "COMPLETED").length})
-                    </TabsTrigger>
-                    <TabsTrigger value="HAS_SHIPMENT" className="gap-1 text-xs">
-                        <Truck className="h-4 w-4" />
-                        Sevk ({stats.shippedProductCount})
-                    </TabsTrigger>
-                </TabsList>
-            </Tabs>
-
-            {/* Sevk Edilen Ciro Özeti - Sadece Sevk sekmesinde ve Admin için */}
-            {activeTab === "HAS_SHIPMENT" && userRole === "ADMIN" && (
-                <Card className="bg-gradient-to-r from-teal-50 to-cyan-50 border-teal-200">
-                    <CardContent className="pt-4">
+                <Card className="bg-gradient-to-r from-violet-50 to-purple-50 border-violet-200">
+                    <CardContent className="py-2 px-3">
                         <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-teal-600 font-medium">Sevk Edilen Toplam Ciro</p>
-                                <p className="text-3xl font-bold text-teal-700">
-                                    {stats.shippedRevenue.toLocaleString('tr-TR')} ₺
-                                </p>
-                                <p className="text-sm text-teal-500">{stats.shippedCount} adet sevk edildi ({stats.shippedProductCount} üründen)</p>
+                            <div className="flex-1">
+                                <p className="text-sm text-violet-600 font-medium">Hedef Ciro</p>
+                                {isEditingHedef ? (
+                                    <div className="flex items-center gap-1 mt-1">
+                                        <Input
+                                            autoFocus
+                                            type="text"
+                                            value={hedefCiroInput}
+                                            onChange={(e) => setHedefCiroInput(e.target.value)}
+                                            onBlur={saveHedefCiro}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') saveHedefCiro(); if (e.key === 'Escape') setIsEditingHedef(false); }}
+                                            className="h-7 text-sm w-40"
+                                            placeholder="Hedef girin..."
+                                        />
+                                        <span className="text-sm text-violet-600">₺</span>
+                                    </div>
+                                ) : (
+                                    <div onClick={() => { setIsEditingHedef(true); setHedefCiroInput(hedefCiro > 0 ? String(hedefCiro) : ''); }} className="cursor-pointer">
+                                        <p className="text-xl font-bold text-violet-700">
+                                            {hedefCiro > 0 ? hedefCiro.toLocaleString('tr-TR') + ' ₺' : <span className="text-sm text-slate-400">Tıkla ve gir →</span>}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
-                            <TrendingUp className="h-12 w-12 text-teal-400" />
+                            <TrendingUp className="h-8 w-8 text-violet-300" />
                         </div>
                     </CardContent>
                 </Card>
             )}
+
+            {/* Sekmeler */}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid grid-cols-5  max-w-2xl h-8">
+                    <TabsTrigger value="all" className="gap-1 text-[11px] px-2 py-1">
+                        <Package className="h-3 w-3" />
+                        Tümü ({products.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="IN_PRODUCTION" className="gap-1 text-[11px] px-2 py-1">
+                        <Wrench className="h-3 w-3" />
+                        Üretimde ({products.filter(p => p.status === "IN_PRODUCTION").length})
+                    </TabsTrigger>
+                    <TabsTrigger value="IN_WAREHOUSE" className="gap-1 text-[11px] px-2 py-1">
+                        <Warehouse className="h-3 w-3" />
+                        Depoda ({stats.inWarehouseProductCount})
+                    </TabsTrigger>
+                    <TabsTrigger value="COMPLETED" className="gap-1 text-[11px] px-2 py-1">
+                        <CheckCircle className="h-3 w-3" />
+                        Bitti ({products.filter(p => p.status === "COMPLETED").length})
+                    </TabsTrigger>
+                    <TabsTrigger value="HAS_SHIPMENT" className="gap-1 text-[11px] px-2 py-1">
+                        <Truck className="h-3 w-3" />
+                        Sevk ({stats.shippedProductCount})
+                    </TabsTrigger>
+                </TabsList>
+            </Tabs>
 
             {/* Filtreler */}
             <Card>
@@ -1024,8 +986,12 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                     <TableHead className="text-center">Durum</TableHead>
                                     <TableHead className="text-center">Toplam</TableHead>
                                     <TableHead className="text-center">Aşamalar</TableHead>
-                                    <TableHead className="text-center">Depoda</TableHead>
-                                    <TableHead className="text-center">Sevk</TableHead>
+                                    {userRole !== 'KALITE' && (
+                                        <>
+                                            <TableHead className="text-center">Depoda</TableHead>
+                                            <TableHead className="text-center">Sevk</TableHead>
+                                        </>
+                                    )}
                                     <TableHead className="text-center">Kalan</TableHead>
                                     <SortHead label="Termin" sortKey="terminDate" />
                                     <SortHead label="İlerleme" sortKey="progress" />
@@ -1123,29 +1089,33 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                 )}
                                             </TableCell>
 
-                                            {/* Depoda */}
-                                            <TableCell className="text-center">
-                                                {(p.storedQty || 0) > 0 ? (
-                                                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                                        <Warehouse className="h-3 w-3 mr-1" />
-                                                        {p.storedQty}
-                                                    </Badge>
-                                                ) : (
-                                                    <span className="text-xs text-slate-400">-</span>
-                                                )}
-                                            </TableCell>
+                                            {userRole !== 'KALITE' && (
+                                                <>
+                                                    {/* Depoda */}
+                                                    <TableCell className="text-center">
+                                                        {(p.storedQty || 0) > 0 ? (
+                                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                                                <Warehouse className="h-3 w-3 mr-1" />
+                                                                {p.storedQty}
+                                                            </Badge>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400">-</span>
+                                                        )}
+                                                    </TableCell>
 
-                                            {/* Sevk Edilen */}
-                                            <TableCell className="text-center">
-                                                {(p.shippedQty || 0) > 0 ? (
-                                                    <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200">
-                                                        <Truck className="h-3 w-3 mr-1" />
-                                                        {p.shippedQty}
-                                                    </Badge>
-                                                ) : (
-                                                    <span className="text-xs text-slate-400">-</span>
-                                                )}
-                                            </TableCell>
+                                                    {/* Sevk Edilen */}
+                                                    <TableCell className="text-center">
+                                                        {(p.shippedQty || 0) > 0 ? (
+                                                            <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200">
+                                                                <Truck className="h-3 w-3 mr-1" />
+                                                                {p.shippedQty}
+                                                            </Badge>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400">-</span>
+                                                        )}
+                                                    </TableCell>
+                                                </>
+                                            )}
 
                                             {/* Kalan */}
                                             <TableCell className="text-center">
@@ -1200,7 +1170,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
 
                     {/* Detay Dialog */}
                     <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-                        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogContent className="max-w-[700px] p-4 max-h-[85vh] overflow-y-auto">
                             <DialogHeader>
                                 <DialogTitle className="text-xl flex items-center gap-2">
                                     {selectedProduct?.name}
@@ -1218,8 +1188,8 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                             {selectedProduct && (
                                 <div className="space-y-6">
                                     {/* Firma ve Usta Bilgisi - En Üstte */}
-                                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 rounded-lg">
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-3 rounded-lg">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                             <div>
                                                 <p className="text-blue-600 text-xs font-medium">Firma</p>
                                                 <p className="text-lg font-bold text-blue-900">{selectedProduct.order?.company || '-'}</p>
@@ -1240,8 +1210,8 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                     </div>
 
                                     {/* Ürün Özellikleri - Firma Altında */}
-                                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 p-4 rounded-lg">
-                                        <h4 className="font-semibold text-sm text-purple-800 mb-3">Ürün Özellikleri</h4>
+                                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-sm text-purple-800 mb-2">Ürün Özellikleri</h4>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                             <div className="bg-white p-2 rounded border">
                                                 <p className="text-purple-600 text-xs font-medium">Kumaş</p>
@@ -1275,45 +1245,69 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                     </div>
 
                                     {/* Siparis Notlari - Özelliklerin Altında (Varsa) */}
-                                    {(selectedProduct.aciklama1 || selectedProduct.aciklama2 || selectedProduct.aciklama3 || selectedProduct.aciklama4) && (
-                                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
-                                            <h4 className="font-semibold text-sm text-amber-800 mb-2">Sipariş Notları</h4>
-                                            <div className="space-y-1 text-sm">
-                                                {selectedProduct.aciklama1 && <p><span className="font-medium text-amber-700">1:</span> {selectedProduct.aciklama1}</p>}
-                                                {selectedProduct.aciklama2 && <p><span className="font-medium text-amber-700">2:</span> {selectedProduct.aciklama2}</p>}
-                                                {selectedProduct.aciklama3 && <p><span className="font-medium text-amber-700">3:</span> {selectedProduct.aciklama3}</p>}
-                                                {selectedProduct.aciklama4 && <p><span className="font-medium text-amber-700">4:</span> {selectedProduct.aciklama4}</p>}
+                                    {(selectedProduct.aciklama1 || selectedProduct.aciklama2 || selectedProduct.aciklama3 || selectedProduct.aciklama4 || selectedProduct.dstAdi || selectedProduct.marketingDescription || selectedProduct.description || selectedProduct.engineerNote) && (
+                                        <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                                            <h4 className="font-semibold text-sm text-amber-800 mb-2">📋 Satış / NetSim Açıklamaları</h4>
+                                            <div className="space-y-2 text-sm">
+                                                {selectedProduct.marketingDescription && (
+                                                    <div className="bg-blue-50 p-2 rounded border border-blue-200">
+                                                        <span className="font-bold text-blue-900 block mb-0.5 text-xs">Satış/Pazarlama Notu:</span>
+                                                        <span className="font-medium text-blue-800 whitespace-pre-wrap">{selectedProduct.marketingDescription}</span>
+                                                    </div>
+                                                )}
+                                                {selectedProduct.engineerNote && (
+                                                    <div className="bg-green-50 p-2 rounded border border-green-200">
+                                                        <span className="font-bold text-green-900 block mb-0.5 text-xs">Mühendis Notu:</span>
+                                                        <span className="font-medium text-green-800 whitespace-pre-wrap">{selectedProduct.engineerNote}</span>
+                                                    </div>
+                                                )}
+                                                {selectedProduct.description && (
+                                                    <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                                                        <span className="font-bold text-slate-700 block mb-0.5 text-xs">Açıklama / Not:</span>
+                                                        <span className="font-medium whitespace-pre-wrap">{selectedProduct.description}</span>
+                                                    </div>
+                                                )}
+                                                {selectedProduct.dstAdi && (
+                                                    <div className="bg-indigo-50 p-2 rounded border border-indigo-200">
+                                                        <span className="font-bold text-indigo-900 block mb-0.5 text-xs">DST (Değişken Stok):</span>
+                                                        <span className="font-medium text-indigo-800">{selectedProduct.dstAdi}</span>
+                                                    </div>
+                                                )}
+                                                {selectedProduct.aciklama1 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 1:</span> <span className="font-medium">{selectedProduct.aciklama1}</span></div>}
+                                                {selectedProduct.aciklama2 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 2:</span> <span className="font-medium">{selectedProduct.aciklama2}</span></div>}
+                                                {selectedProduct.aciklama3 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 3:</span> <span className="font-medium">{selectedProduct.aciklama3}</span></div>}
+                                                {selectedProduct.aciklama4 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 4:</span> <span className="font-medium">{selectedProduct.aciklama4}</span></div>}
                                             </div>
                                         </div>
                                     )}
 
                                     {/* Miktar Ozeti */}
                                     <div className="grid grid-cols-6 gap-2">
-                                        <div className="bg-blue-50 p-3 rounded-lg text-center">
-                                            <p className="text-blue-600 text-xs font-medium">Toplam</p>
-                                            <p className="text-2xl font-bold text-blue-700">{selectedProduct.quantity}</p>
+                                        <div className="bg-blue-50 p-2 rounded-lg text-center">
+                                            <p className="text-blue-600 text-[10px] font-medium">Toplam</p>
+                                            <p className="text-xl font-bold text-blue-700">{selectedProduct.quantity}</p>
                                         </div>
-                                        <div className="bg-purple-50 p-3 rounded-lg text-center">
-                                            <p className="text-purple-600 text-xs font-medium">Sünger</p>
+                                        <div className="bg-purple-50 p-2 rounded-lg text-center">
+                                            <p className="text-purple-600 text-[10px] font-medium">Sünger</p>
                                             <p className="text-2xl font-bold text-purple-700">{editValues.foam || 0}</p>
                                         </div>
-                                        <div className="bg-yellow-50 p-3 rounded-lg text-center">
-                                            <p className="text-yellow-600 text-xs font-medium">Üretimde</p>
-                                            <p className="text-2xl font-bold text-yellow-700">
+                                        <div className="bg-yellow-50 p-2 rounded-lg text-center">
+                                            <p className="text-yellow-600 text-[10px] font-medium">Üretimde</p>
+                                            <p className="text-xl font-bold text-yellow-700">
                                                 {(editValues.upholstery || 0) + (editValues.assembly || 0)}
                                             </p>
                                         </div>
-                                        <div className="bg-green-50 p-3 rounded-lg text-center">
-                                            <p className="text-green-600 text-xs font-medium">Depoda</p>
-                                            <p className="text-2xl font-bold text-green-700">{editValues.stored || 0}</p>
+                                        <div className="bg-green-50 p-2 rounded-lg text-center">
+                                            <p className="text-green-600 text-[10px] font-medium">Depoda</p>
+                                            <p className="text-xl font-bold text-green-700">{editValues.stored || 0}</p>
                                         </div>
-                                        <div className="bg-teal-50 p-3 rounded-lg text-center">
-                                            <p className="text-teal-600 text-xs font-medium">Sevk</p>
-                                            <p className="text-2xl font-bold text-teal-700">{editValues.shipped || 0}</p>
+                                        <div className="bg-teal-50 p-2 rounded-lg text-center">
+                                            <p className="text-teal-600 text-[10px] font-medium">Sevk</p>
+                                            <p className="text-xl font-bold text-teal-700">{editValues.shipped || 0}</p>
                                         </div>
-                                        <div className="bg-amber-50 p-3 rounded-lg text-center">
-                                            <p className="text-amber-600 text-xs font-medium">Kalan</p>
-                                            <p className="text-2xl font-bold text-amber-700">
+                                        <div className="bg-amber-50 p-2 rounded-lg text-center">
+                                            <p className="text-amber-600 text-[10px] font-medium">Kalan</p>
+                                            <p className="text-xl font-bold text-amber-700">
                                                 {selectedProduct.quantity - (editValues.shipped || 0)}
                                             </p>
                                         </div>
@@ -1321,17 +1315,17 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
 
                                     {/* Üretim Aşamaları - Düzenlenebilir */}
                                     <Card>
-                                        <CardHeader className="py-3">
-                                            <CardTitle className="text-sm flex items-center gap-2">
-                                                <Wrench className="h-4 w-4" />
+                                        <CardHeader className="py-2 px-3">
+                                            <CardTitle className="text-xs flex items-center gap-1.5">
+                                                <Wrench className="h-3 w-3" />
                                                 Üretim Aşamaları
-                                                <span className="text-xs text-slate-500 ml-auto">
+                                                <span className="text-[10px] text-slate-500 ml-auto">
                                                     Toplam: {editValues.foam + editValues.upholstery + editValues.assembly + editValues.packaged + editValues.stored + editValues.shipped} / {selectedProduct.quantity}
                                                 </span>
                                             </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="space-y-4">
-                                            <div className="grid grid-cols-6 gap-3">
+                                                        <CardContent className="space-y-2 px-2 pb-2">
+                                            <div className="grid grid-cols-6 gap-1">
                                                 {STAGES.map(stage => {
                                                     const StageIcon = stage.icon;
                                                     const maxValue = selectedProduct.quantity;
@@ -1341,12 +1335,10 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                     // shipped: kimse düzenleyemez (Depo sayfasından)
                                                     const isDisabled = !canEdit || isPending || isShipped || (isStored && userRole !== 'ADMIN');
                                                     return (
-                                                        <div key={stage.key} className={`p-4 rounded-lg ${stage.bg} border ${stage.border} ${isShipped || (isStored && userRole !== 'ADMIN') ? 'opacity-75' : ''}`}>
-                                                            <Label className={`text-sm flex items-center gap-2 mb-2 ${stage.color}`}>
-                                                                <StageIcon className="h-5 w-5" />
+                                                        <div key={stage.key} className={`p-1 rounded-md ${stage.bg} border ${stage.border} ${isShipped || (isStored && userRole !== 'ADMIN') ? 'opacity-75' : ''}`}>
+                                                            <Label className={`text-[9px] flex items-center gap-0.5 mb-0.5 ${stage.color}`}>
+                                                                <StageIcon className="h-2 w-2" />
                                                                 {stage.label}
-                                                                {isShipped && <span className="text-[10px] ml-auto">(Depo sayfasından)</span>}
-                                                                {isStored && userRole !== 'ADMIN' && <span className="text-[10px] ml-auto">(Sadece Admin)</span>}
                                                             </Label>
                                                             <Input
                                                                 type="number"
@@ -1356,17 +1348,17 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                                 disabled={isDisabled}
                                                                 readOnly={isShipped || (isStored && userRole !== 'ADMIN')}
                                                                 onChange={(e) => handleStageChange(stage.key, parseInt(e.target.value) || 0, selectedProduct)}
-                                                                className={`h-12 text-2xl font-bold text-center ${isDisabled ? 'bg-slate-50 cursor-not-allowed' : ''}`}
+                                                                className={`h-5 text-xs font-bold text-center px-0 ${isDisabled ? 'bg-slate-50 cursor-not-allowed' : ''}`}
                                                             />
-                                                            <p className="text-xs text-center mt-1 text-muted-foreground">/ {maxValue}</p>
+                                                            <p className="text-[9px] text-center mt-0.5 text-muted-foreground">/ {maxValue}</p>
                                                         </div>
                                                     );
                                                 })}
                                             </div>
 
                                             {/* Görsel Progress */}
-                                            <div className="space-y-2">
-                                                <div className="flex gap-1 h-8 rounded-lg overflow-hidden bg-slate-100">
+                                            <div className="space-y-1">
+                                                <div className="flex gap-0.5 h-4 rounded overflow-hidden bg-slate-100">
                                                     {STAGES.map(stage => {
                                                         const value = editValues[stage.key];
                                                         const width = (value / selectedProduct.quantity) * 100;
@@ -1374,7 +1366,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                         return (
                                                             <div
                                                                 key={stage.key}
-                                                                className={`${stage.bg.replace('100', '500')} flex items-center justify-center text-white text-sm font-bold transition-all`}
+                                                                className={`${stage.bg.replace('100', '500')} flex items-center justify-center text-white text-xs font-bold transition-all`}
                                                                 style={{ width: `${width}%` }}
                                                             >
                                                                 {value > 0 && value}
@@ -1382,25 +1374,21 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                         );
                                                     })}
                                                 </div>
-                                                <div className="flex justify-between text-xs text-slate-500">
+                                                <div className="flex justify-between text-[10px] text-slate-500">
                                                     <span>Sünger</span>
                                                     <span>Döşeme</span>
                                                     <span>Montaj</span>
                                                     <span>Paket</span>
-                                                    <span>Depo</span>
-                                                    <span>Sevk</span>
+                                                    {userRole !== 'KALITE' && (
+                                                        <>
+                                                            <span>Depo</span>
+                                                            <span>Sevk</span>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </CardContent>
                                     </Card>
-
-                                    {/* Barkod Bilgisi */}
-                                    <div className="grid grid-cols-1 gap-3">
-                                        <div className="bg-slate-50 p-3 rounded">
-                                            <p className="text-muted-foreground text-xs">Barkod</p>
-                                            <p className="font-mono text-sm">{selectedProduct.barcode || '-'}</p>
-                                        </div>
-                                    </div>
 
                                     {/* Tarihler */}
                                     <div className="grid grid-cols-2 gap-3">
@@ -1659,14 +1647,32 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                             </div>
 
                             {/* Siparis Notlari */}
-                            {(selectedProduct.aciklama1 || selectedProduct.aciklama2 || selectedProduct.aciklama3 || selectedProduct.aciklama4) && (
+                            {(selectedProduct.aciklama1 || selectedProduct.aciklama2 || selectedProduct.aciklama3 || selectedProduct.aciklama4 || selectedProduct.dstAdi || selectedProduct.marketingDescription || selectedProduct.description) && (
                                 <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-sm text-amber-800 mb-2">Sipariş Notları</h4>
-                                    <div className="space-y-1 text-sm">
-                                        {selectedProduct.aciklama1 && <p><span className="font-medium text-amber-700">1:</span> {selectedProduct.aciklama1}</p>}
-                                        {selectedProduct.aciklama2 && <p><span className="font-medium text-amber-700">2:</span> {selectedProduct.aciklama2}</p>}
-                                        {selectedProduct.aciklama3 && <p><span className="font-medium text-amber-700">3:</span> {selectedProduct.aciklama3}</p>}
-                                        {selectedProduct.aciklama4 && <p><span className="font-medium text-amber-700">4:</span> {selectedProduct.aciklama4}</p>}
+                                    <h4 className="font-semibold text-sm text-amber-800 mb-2">📋 Satış / NetSim Açıklamaları</h4>
+                                    <div className="space-y-2 text-sm">
+                                        {selectedProduct.marketingDescription && (
+                                            <div className="bg-blue-50 p-2 rounded border border-blue-200">
+                                                <span className="font-bold text-blue-900 block mb-0.5 text-xs">Satış/Pazarlama Notu:</span>
+                                                <span className="font-medium text-blue-800 whitespace-pre-wrap">{selectedProduct.marketingDescription}</span>
+                                            </div>
+                                        )}
+                                        {selectedProduct.description && (
+                                            <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                                                <span className="font-bold text-slate-700 block mb-0.5 text-xs">Açıklama / Not:</span>
+                                                <span className="font-medium whitespace-pre-wrap">{selectedProduct.description}</span>
+                                            </div>
+                                        )}
+                                        {selectedProduct.dstAdi && (
+                                            <div className="bg-indigo-50 p-2 rounded border border-indigo-200">
+                                                <span className="font-bold text-indigo-900 block mb-0.5 text-xs">DST (Değişken Stok):</span>
+                                                <span className="font-medium text-indigo-800">{selectedProduct.dstAdi}</span>
+                                            </div>
+                                        )}
+                                        {selectedProduct.aciklama1 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 1:</span> <span className="font-medium">{selectedProduct.aciklama1}</span></div>}
+                                        {selectedProduct.aciklama2 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 2:</span> <span className="font-medium">{selectedProduct.aciklama2}</span></div>}
+                                        {selectedProduct.aciklama3 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 3:</span> <span className="font-medium">{selectedProduct.aciklama3}</span></div>}
+                                        {selectedProduct.aciklama4 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 4:</span> <span className="font-medium">{selectedProduct.aciklama4}</span></div>}
                                     </div>
                                 </div>
                             )}
@@ -1705,17 +1711,17 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
 
                             {/* Üretim Aşamaları - Düzenlenebilir */}
                             <Card>
-                                <CardHeader className="py-3">
-                                    <CardTitle className="text-sm flex items-center gap-2">
-                                        <Wrench className="h-4 w-4" />
+                                <CardHeader className="py-2 px-3">
+                                    <CardTitle className="text-xs flex items-center gap-1.5">
+                                        <Wrench className="h-3 w-3" />
                                         Üretim Aşamaları
-                                        <span className="text-xs text-slate-500 ml-auto">
+                                        <span className="text-[10px] text-slate-500 ml-auto">
                                             Toplam: {editValues.foam + editValues.upholstery + editValues.assembly + editValues.packaged + editValues.stored + editValues.shipped} / {selectedProduct.quantity}
                                         </span>
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div className="grid grid-cols-6 gap-3">
+                                <CardContent className="space-y-1.5 px-2 pb-2">
+                                    <div className="grid grid-cols-6 gap-1">
                                         {STAGES.map(stage => {
                                             const StageIcon = stage.icon;
                                             const maxValue = selectedProduct.quantity;
@@ -1723,12 +1729,10 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                             const isStored = stage.key === 'stored';
                                             const isDisabled = !canEdit || isPending || isShipped || (isStored && userRole !== 'ADMIN');
                                             return (
-                                                <div key={stage.key} className={`p-4 rounded-lg ${stage.bg} border ${stage.border} ${isShipped || (isStored && userRole !== 'ADMIN') ? 'opacity-75' : ''}`}>
-                                                    <Label className={`text-sm flex items-center gap-2 mb-2 ${stage.color}`}>
-                                                        <StageIcon className="h-5 w-5" />
+                                                <div key={stage.key} className={`p-1 rounded-md ${stage.bg} border ${stage.border} ${isShipped || (isStored && userRole !== 'ADMIN') ? 'opacity-75' : ''}`}>
+                                                    <Label className={`text-[9px] flex items-center gap-0.5 mb-0.5 ${stage.color}`}>
+                                                        <StageIcon className="h-2 w-2" />
                                                         {stage.label}
-                                                        {isShipped && <span className="text-[10px] ml-auto">(Depo sayfasından)</span>}
-                                                        {isStored && userRole !== 'ADMIN' && <span className="text-[10px] ml-auto">(Sadece Admin)</span>}
                                                     </Label>
                                                     <Input
                                                         type="number"
@@ -1738,17 +1742,17 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                         disabled={isDisabled}
                                                         readOnly={isShipped || (isStored && userRole !== 'ADMIN')}
                                                         onChange={(e) => handleStageChange(stage.key, parseInt(e.target.value) || 0, selectedProduct)}
-                                                        className={`h-12 text-2xl font-bold text-center ${isDisabled ? 'bg-slate-50 cursor-not-allowed' : ''}`}
+                                                        className={`h-5 text-xs font-bold text-center px-0.5 ${isDisabled ? 'bg-slate-50 cursor-not-allowed' : ''}`}
                                                     />
-                                                    <p className="text-xs text-center mt-1 text-muted-foreground">/ {maxValue}</p>
+                                                    <p className="text-[9px] text-center mt-0.5 text-muted-foreground">/ {maxValue}</p>
                                                 </div>
                                             );
                                         })}
                                     </div>
 
                                     {/* Görsel Progress */}
-                                    <div className="space-y-2">
-                                        <div className="flex gap-1 h-8 rounded-lg overflow-hidden bg-slate-100">
+                                    <div className="space-y-1">
+                                        <div className="flex gap-0.5 h-4 rounded overflow-hidden bg-slate-100">
                                             {STAGES.map(stage => {
                                                 const value = editValues[stage.key];
                                                 const width = (value / selectedProduct.quantity) * 100;
@@ -1756,7 +1760,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                 return (
                                                     <div
                                                         key={stage.key}
-                                                        className={`${stage.bg.replace('100', '500')} flex items-center justify-center text-white text-sm font-bold transition-all`}
+                                                        className={`${stage.bg.replace('100', '500')} flex items-center justify-center text-white text-xs font-bold transition-all`}
                                                         style={{ width: `${width}%` }}
                                                     >
                                                         {value > 0 && value}
@@ -1764,7 +1768,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                                                 );
                                             })}
                                         </div>
-                                        <div className="flex justify-between text-xs text-slate-500">
+                                        <div className="flex justify-between text-[10px] text-slate-500">
                                             <span>Sünger</span>
                                             <span>Döşeme</span>
                                             <span>Montaj</span>
@@ -1797,7 +1801,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                             {/* Mühendis Notu */}
                             <div className="space-y-2">
                                 <h4 className="font-semibold text-sm flex items-center gap-2">
-                                    <MessageSquare className="h-4 w-4" /> Mühendis Notu
+                                    <MessageSquare className="h-4 w-4" /> Not
                                 </h4>
                                 <Textarea
                                     placeholder="Not ekle..."
@@ -1869,6 +1873,14 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                     window.location.reload();
                 }}
             />
+
+            {barcodePrintProduct && (
+                <BarcodeLabelPrint
+                    open={!!barcodePrintProduct}
+                    onOpenChange={(open) => !open && setBarcodePrintProduct(null)}
+                    product={barcodePrintProduct}
+                />
+            )}
         </div>
     );
 }

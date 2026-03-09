@@ -1,5 +1,3 @@
-'use server';
-
 // Re-export all actions from domain-specific files
 
 // Shared utilities
@@ -43,7 +41,9 @@ export {
 // Order actions
 export {
     createOrder,
-    getOrderForClone
+    getOrderForClone,
+    bulkUpdateOrderProducts,
+    bulkUpdateSelectedProducts
 } from './order-actions';
 
 // Order types

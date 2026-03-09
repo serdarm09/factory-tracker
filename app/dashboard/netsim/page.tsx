@@ -103,6 +103,7 @@ interface NetSimOrderDetail {
   ACIKLAMA2: string | null;
   ACIKLAMA3: string | null;
   ACIKLAMA4: string | null;
+  SIPARIS_ACIKLAMA: string | null;
   DSTOK_NO?: number;
   DST_ADI?: string | null;
 }
@@ -970,6 +971,12 @@ export default function NetSimPage() {
                                 </span>{" "}
                                 <span className="font-medium">{formatCurrency(selectedOrder?.GENEL_TOPLAM || 0)}</span>
                               </div>
+                              {selectedOrder?.ACIKLAMA && (
+                                <div className="col-span-2 md:col-span-4">
+                                  <span className="text-muted-foreground">Sipariş Açıklaması: </span>
+                                  <span className="font-medium">{selectedOrder.ACIKLAMA}</span>
+                                </div>
+                              )}
                             </div>
                             <Table>
                               <TableHeader>

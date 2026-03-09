@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Loader2, Info, Copy, Send, ChevronDown, ChevronRight, Filter, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Pencil, SendHorizontal, DollarSign } from "lucide-react";
+import { Download, Loader2, Info, Copy, Send, ChevronDown, ChevronRight, Filter, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Pencil, SendHorizontal, DollarSign, CheckSquare } from "lucide-react";
 import { translateStatus } from "@/lib/translations";
 import * as XLSX from "xlsx";
 import { EditProductDialog } from "@/components/edit-product-dialog";
@@ -25,8 +25,11 @@ import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
 import { DeleteProductButton } from "@/components/delete-product-button";
 import { useRouter } from "next/navigation";
 import { getOrderForClone, sendToApproval, marketingApproveProduct, deleteProduct } from "@/lib/actions";
+import { bulkUpdateSelectedProducts } from "@/lib/actions/order-actions";
 import { toast } from "sonner";
 import { ProductDetailDialog } from "@/components/product-detail-dialog";
+import { BulkAssignDialog } from "@/components/bulk-assign-dialog";
+import { BulkAssignSelectedDialog } from "@/components/bulk-assign-selected-dialog";
 
 type SortField = 'name' | 'company' | 'date' | 'termin' | 'quantity' | 'status' | 'price';
 type SortDirection = 'asc' | 'desc';
@@ -49,9 +52,24 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
     const isMarketing = userRole === 'MARKETING';
     const router = useRouter();
 
+    // Auto-poll the server for new changes without reloading the page
+    useEffect(() => {
+        const interval = setInterval(() => {
+            router.refresh();
+        }, 10000); // 10 seconds
+        return () => clearInterval(interval);
+    }, [router]);
+
     // Detail View State (New Dialog)
     const [detailProduct, setDetailProduct] = useState<any>(null);
     const [detailOpen, setDetailOpen] = useState(false);
+
+    // Bulk Assign Dialog State
+    const [bulkAssignOrder, setBulkAssignOrder] = useState<{ id: number; name: string; count: number } | null>(null);
+
+    // Çoklu seçim state'leri
+    const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
+    const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
 
     const [exportLoading, setExportLoading] = useState(false);
     const [cloneLoading, setCloneLoading] = useState<number | null>(null);
@@ -63,10 +81,12 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
 
     // Filter states
     const [filterCompany, setFilterCompany] = useState<string>("");
+    const [filterProductName, setFilterProductName] = useState<string>("");
     const [filterDateFrom, setFilterDateFrom] = useState<string>("");
     const [filterDateTo, setFilterDateTo] = useState<string>("");
     const [filterMonth, setFilterMonth] = useState<string>("all");
     const [filterYear, setFilterYear] = useState<string>("all");
+    const [filterUnscheduled, setFilterUnscheduled] = useState<boolean>(false);
 
     // Sorting states
     const [sortField, setSortField] = useState<SortField>('date');
@@ -128,6 +148,7 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
         let filteredLegacy = legacyProducts.filter(p => {
             // Apply common filters
             if (filterCompany && !p.company?.toLowerCase().includes(filterCompany.toLowerCase())) return false;
+            if (filterProductName && !p.name?.toLowerCase().includes(filterProductName.toLowerCase())) return false;
             // Date filters ...
             // Apply Tab filter
             const matchesTab = filterProductsByTab([p], currentTab).length > 0;
@@ -137,6 +158,20 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
         let filteredOrdersList = orders.filter(order => {
             // Company filter
             if (filterCompany && !order.company?.toLowerCase().includes(filterCompany.toLowerCase())) return false;
+
+            // Product name filter - check if any product in the order matches
+            if (filterProductName) {
+                const hasMatchingProduct = order.products.some((p: any) =>
+                    p.name?.toLowerCase().includes(filterProductName.toLowerCase())
+                );
+                if (!hasMatchingProduct) return false;
+            }
+
+            // Planlanmamış filtresi - terminDate null olanları göster
+            if (filterUnscheduled) {
+                const hasUnscheduledProduct = order.products.some((p: any) => !p.terminDate);
+                if (!hasUnscheduledProduct) return false;
+            }
 
             // Month/Year/Date filters
             const orderDate = new Date(order.createdAt);
@@ -197,14 +232,16 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
 
     const clearFilters = () => {
         setFilterCompany("");
+        setFilterProductName("");
         setFilterDateFrom("");
         setFilterDateTo("");
         setFilterMonth("all");
         setFilterYear("all");
+        setFilterUnscheduled(false);
         setCurrentPage(1);
     };
 
-    const hasActiveFilters = filterCompany || filterDateFrom || filterDateTo || filterMonth !== "all" || filterYear !== "all";
+    const hasActiveFilters = filterCompany || filterProductName || filterDateFrom || filterDateTo || filterMonth !== "all" || filterYear !== "all" || filterUnscheduled;
 
     // Toggle order expansion
     const toggleOrder = (orderId: number) => {
@@ -326,6 +363,20 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
 
         return (
             <div className="space-y-4">
+                {/* Seçim çubuğu */}
+                {selectedProductIds.size > 0 && !isViewer && (
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">{selectedProductIds.size} ürün seçildi</span>
+                        <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700" onClick={() => setBulkAssignOpen(true)}>
+                            <Calendar className="h-3.5 w-3.5" />
+                            Toplu Ata
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => setSelectedProductIds(new Set())}>
+                            <X className="h-3.5 w-3.5 mr-1" />
+                            Seçimi Temizle
+                        </Button>
+                    </div>
+                )}
                 {showRevenue && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <Card className={`bg-green-50 border-green-200`}>
@@ -350,6 +401,7 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                             <TableHeader>
                                 <TableRow className="bg-slate-50">
                                     <TableHead className="w-10"></TableHead>
+                                    {!isViewer && <TableHead className="w-8"></TableHead>}
                                     <TableHead onClick={() => handleSort('name')} className="cursor-pointer hover:bg-slate-100">
                                         <div className="flex items-center">Sipariş / Ürün <SortIcon field="name" /></div>
                                     </TableHead>
@@ -384,7 +436,11 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                                             <TableCell colSpan={showRevenue ? 7 : 6} className="text-orange-900">Eski / Siparişsiz Planlar</TableCell>
                                         </TableRow>
                                         {expandedOrders.has(-1) && filterProductsByTab(filteredLegacy, tabValue).map(p => (
-                                            <ProductRow key={p.id} product={p} isViewer={isViewer} isAdmin={isAdmin} isMarketing={isMarketing} isPlanner={isPlanner} showRevenue={showRevenue} onClick={() => handleRowClick(p)} onSendToApproval={handleSendToApproval} onDelete={handleDeleteProduct} />
+                                            <ProductRow key={p.id} product={p} isViewer={isViewer} isAdmin={isAdmin} isMarketing={isMarketing} isPlanner={isPlanner} showRevenue={showRevenue} onClick={() => handleRowClick(p)} onSendToApproval={handleSendToApproval} onDelete={handleDeleteProduct} isSelected={selectedProductIds.has(p.id)} onSelect={(id: number, checked: boolean) => {
+                                                const next = new Set(selectedProductIds);
+                                                checked ? next.add(id) : next.delete(id);
+                                                setSelectedProductIds(next);
+                                            }} />
                                         ))}
                                     </React.Fragment>
                                 )}
@@ -394,12 +450,18 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                                     if (matchingProducts.length === 0) return null;
                                     const isExpanded = expandedOrders.has(order.id);
 
+                                    // Reddilen ürün var mı kontrol et
+                                    const hasRejectedProduct = matchingProducts.some((p: any) => p.status === 'REJECTED');
+
                                     // Tüm ürünlerin termin tarihi girilmiş mi kontrol et
                                     const allProductsHaveTermin = matchingProducts.length > 0 &&
                                         matchingProducts.every((p: any) => p.terminDate);
-                                    const orderRowClass = allProductsHaveTermin
-                                        ? "bg-green-100 hover:bg-green-200 font-medium cursor-pointer"
-                                        : "bg-slate-100 hover:bg-slate-200 font-medium cursor-pointer";
+
+                                    const orderRowClass = hasRejectedProduct
+                                        ? "bg-red-100 hover:bg-red-200 font-bold text-red-900 cursor-pointer border-l-4 border-red-500"
+                                        : allProductsHaveTermin
+                                            ? "bg-green-100 hover:bg-green-200 font-medium cursor-pointer border-l-4 border-green-500"
+                                            : "bg-slate-100 hover:bg-slate-200 font-medium cursor-pointer";
 
                                     return (
                                         <React.Fragment key={order.id}>
@@ -410,26 +472,72 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                                                     </Button>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <div className="font-semibold">{order.name}</div>
-                                                        {allProductsHaveTermin && (
+                                                        <span className="text-[10px] text-slate-400 font-mono bg-slate-100 px-1 rounded">#{order.id}</span>
+                                                        {hasRejectedProduct ? (
+                                                            <Badge variant="destructive" className="bg-red-500 hover:bg-red-600 text-white text-[10px] animate-pulse">
+                                                                Reddedilen!
+                                                            </Badge>
+                                                        ) : allProductsHaveTermin ? (
                                                             <Badge variant="secondary" className="bg-green-200 text-green-800 text-[10px]">
                                                                 Tamamlandı
                                                             </Badge>
-                                                        )}
+                                                        ) : null}
                                                     </div>
-                                                    <div className="text-xs text-slate-500">{order.marketingBy?.username}</div>
+                                                    <div className="text-xs text-slate-400">
+                                                        {new Date(order.createdAt).toLocaleDateString('tr-TR')}
+                                                        {order.marketingBy?.username && ` · ${order.marketingBy.username}`}
+                                                    </div>
+                                                    {order.products?.[0]?.aciklama1 && (
+                                                        <div className="text-[10px] text-amber-700 truncate max-w-[220px]" title={order.products[0].aciklama1}>
+                                                            📋 {order.products[0].aciklama1}
+                                                        </div>
+                                                    )}
                                                 </TableCell>
-                                                <TableCell>{order.company}</TableCell>
+                                                <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                        {!isViewer && (
+                                                            <div
+                                                                className="flex items-center justify-center p-1 rounded hover:bg-slate-200 cursor-pointer text-indigo-600"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const orderProductIds = matchingProducts.map((p: any) => p.id);
+                                                                    const allSelected = orderProductIds.every((id: number) => selectedProductIds.has(id));
+                                                                    const next = new Set(selectedProductIds);
+                                                                    if (allSelected) {
+                                                                        orderProductIds.forEach((id: number) => next.delete(id));
+                                                                    } else {
+                                                                        orderProductIds.forEach((id: number) => next.add(id));
+                                                                    }
+                                                                    setSelectedProductIds(next);
+                                                                }}
+                                                                title="Bu siparişteki tüm ürünleri seç"
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={matchingProducts.length > 0 && matchingProducts.every((p: any) => selectedProductIds.has(p.id))}
+                                                                    readOnly
+                                                                    className="h-4 w-4 rounded border-slate-300 cursor-pointer pointer-events-none"
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        <span>{order.company}</span>
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell>{new Date(order.createdAt).toLocaleDateString('tr-TR')}</TableCell>
                                                 <TableCell>-</TableCell>
                                                 <TableCell><Badge variant="outline">{matchingProducts.length} adet</Badge></TableCell>
                                                 <TableCell><Badge variant="secondary">{translateStatus(order.status)}</Badge></TableCell>
                                                 {showRevenue && <TableCell>{order.totalAmount ? `${order.totalAmount} TL` : '-'}</TableCell>}
-                                                {!isViewer && <TableCell>-</TableCell>}
+                                                {!isViewer && <TableCell></TableCell>}
                                             </TableRow>
                                             {isExpanded && matchingProducts.map((p: any) => (
-                                                <ProductRow key={p.id} product={p} isViewer={isViewer} isAdmin={isAdmin} isMarketing={isMarketing} isPlanner={isPlanner} showRevenue={showRevenue} onClick={() => handleRowClick(p)} onSendToApproval={handleSendToApproval} onDelete={handleDeleteProduct} />
+                                                <ProductRow key={p.id} product={p} isViewer={isViewer} isAdmin={isAdmin} isMarketing={isMarketing} isPlanner={isPlanner} showRevenue={showRevenue} onClick={() => handleRowClick(p)} onSendToApproval={handleSendToApproval} onDelete={handleDeleteProduct} isSelected={selectedProductIds.has(p.id)} onSelect={(id: number, checked: boolean) => {
+                                                    const next = new Set(selectedProductIds);
+                                                    checked ? next.add(id) : next.delete(id);
+                                                    setSelectedProductIds(next);
+                                                }} />
                                             ))}
                                         </React.Fragment>
                                     );
@@ -450,7 +558,20 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                 {/* Pagination Controls */}
                 {filteredOrdersList.length > 0 && (
                     <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <div>Sayfa {currentPage} / {totalPages || 1}</div>
+                        <div className="flex items-center gap-2">
+                            <span>Sayfa {currentPage} / {totalPages || 1}</span>
+                            <span className="text-slate-300">|</span>
+                            <span>Göster:</span>
+                            {[20, 50, 100, 150, 200].map(size => (
+                                <button
+                                    key={size}
+                                    onClick={() => { setPageSize(size); setCurrentPage(1); }}
+                                    className={`px-2 py-0.5 rounded text-xs border ${pageSize === size ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
+                                >
+                                    {size}
+                                </button>
+                            ))}
+                        </div>
                         <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Önceki</Button>
                             <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Sonraki</Button>
@@ -471,10 +592,14 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                         <div className="space-y-1">
                             <label className="text-sm text-muted-foreground">Firma</label>
                             <Input placeholder="Firma ara..." value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-sm text-muted-foreground">Ürün Adı</label>
+                            <Input placeholder="Ürün ara..." value={filterProductName} onChange={(e) => setFilterProductName(e.target.value)} />
                         </div>
                         <div className="space-y-1">
                             <label className="text-sm text-muted-foreground">Yıl</label>
@@ -501,6 +626,19 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                             <div className="flex gap-2">
                                 <Input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
                                 <Input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-sm text-muted-foreground">Diğer</label>
+                            <div className="flex items-center h-10 px-3 border rounded-md bg-background">
+                                <input
+                                    type="checkbox"
+                                    id="filterUnscheduled"
+                                    checked={filterUnscheduled}
+                                    onChange={(e) => setFilterUnscheduled(e.target.checked)}
+                                    className="mr-2 h-4 w-4"
+                                />
+                                <label htmlFor="filterUnscheduled" className="text-sm cursor-pointer">Planlanmamış</label>
                             </div>
                         </div>
                     </div>
@@ -537,11 +675,29 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                 product={detailProduct}
                 userRole={userRole}
             />
+
+            {bulkAssignOrder && (
+                <BulkAssignDialog
+                    open={!!bulkAssignOrder}
+                    onOpenChange={(open) => !open && setBulkAssignOrder(null)}
+                    orderId={bulkAssignOrder.id}
+                    orderName={bulkAssignOrder.name}
+                    productCount={bulkAssignOrder.count}
+                />
+            )}
+
+            <BulkAssignSelectedDialog
+                open={bulkAssignOpen}
+                onOpenChange={setBulkAssignOpen}
+                productIds={Array.from(selectedProductIds)}
+                companies={companies}
+                onSuccess={() => setSelectedProductIds(new Set())}
+            />
         </div>
     );
 }
 
-function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRevenue, onClick, onSendToApproval, onDelete }: any) {
+function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRevenue, onClick, onSendToApproval, onDelete, isSelected, onSelect }: any) {
     const [sendingApproval, setSendingApproval] = React.useState(false);
     const [deleting, setDeleting] = React.useState(false);
 
@@ -584,15 +740,39 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
         }
     };
 
-    // Termin tarihi girilmiş mi kontrol et
+    // Row styling logic
+    const isRejected = product.status === 'REJECTED';
     const hasTerminDate = !!product.terminDate;
-    const rowBgClass = hasTerminDate
-        ? "bg-green-50 hover:bg-green-100 cursor-pointer"
-        : "bg-white hover:bg-slate-50 cursor-pointer";
+
+    const cellBg = isSelected
+        ? "bg-blue-50"
+        : isRejected
+            ? "bg-red-50 text-red-900"
+            : hasTerminDate
+                ? "bg-green-50"
+                : "bg-white";
+
+    const rowBgClass = isSelected
+        ? "bg-blue-50 hover:bg-blue-100 cursor-pointer"
+        : isRejected
+            ? "bg-red-50 hover:bg-red-100 cursor-pointer border-l-2 border-red-500"
+            : hasTerminDate
+                ? "bg-green-50 hover:bg-green-100 cursor-pointer"
+                : "bg-white hover:bg-slate-50 cursor-pointer";
 
     return (
         <TableRow className={rowBgClass} onClick={onClick}>
             <TableCell></TableCell>
+            {!isViewer && (
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                    <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => onSelect(product.id, e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 cursor-pointer"
+                    />
+                </TableCell>
+            )}
             <TableCell>
                 <div className="flex items-center gap-2 pl-4">
                     <div className="w-8 h-8 rounded border bg-slate-50 flex items-center justify-center overflow-hidden">
@@ -610,15 +790,20 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
                             <div className="font-medium">{product.name}</div>
                         )}
                         <div className="text-xs text-slate-500">{product.systemCode} | {product.model}</div>
+                        {product.aciklama1 && (
+                            <div className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded mt-0.5 truncate max-w-[200px]" title={product.aciklama1}>
+                                📋 {product.aciklama1}
+                            </div>
+                        )}
                     </div>
                 </div>
             </TableCell>
-            <TableCell className="text-sm">{product.material || '-'}</TableCell>
-            <TableCell className="text-sm">{product.orderDate ? new Date(product.orderDate).toLocaleDateString('tr-TR') : '-'}</TableCell>
-            <TableCell className={`text-sm ${hasTerminDate ? 'text-green-700 font-semibold' : 'text-red-500'}`}>
+            <TableCell className={`text-sm ${cellBg}`}>{product.material || '-'}</TableCell>
+            <TableCell className={`text-sm ${cellBg}`}>{product.orderDate ? new Date(product.orderDate).toLocaleDateString('tr-TR') : '-'}</TableCell>
+            <TableCell className={`text-sm ${cellBg} ${hasTerminDate ? 'text-green-700 font-semibold' : 'text-red-500'}`}>
                 {product.terminDate ? new Date(product.terminDate).toLocaleDateString('tr-TR') : 'Girilmedi'}
             </TableCell>
-            <TableCell className="font-bold">
+            <TableCell className={`font-bold ${cellBg}`}>
                 <div className="flex flex-col">
                     <span>{product.quantity}</span>
                     <span className="text-[10px] text-slate-400 font-normal">
@@ -626,19 +811,19 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
                     </span>
                 </div>
             </TableCell>
-            <TableCell>
+            <TableCell className={cellBg}>
                 <span className={`px-2 py-1 rounded text-xs font-bold inline-block ${getStatusBadge(product.status)}`}>
                     {translateStatus(product.status)}
                 </span>
             </TableCell>
-            {showRevenue && <TableCell>{product.totalPrice ? `${product.totalPrice} TL` : '-'}</TableCell>}
+            {showRevenue && <TableCell className={cellBg}>{product.totalPrice ? `${product.totalPrice} TL` : '-'}</TableCell>}
             {!isViewer && (
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                <TableCell className={cellBg} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-8 px-3 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            className="h-8 px-3 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 bg-transparent"
                             onClick={onClick}
                         >
                             <Pencil className="h-3.5 w-3.5" />
@@ -648,7 +833,7 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8 px-3 gap-1 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                className="h-8 px-3 gap-1 text-green-600 hover:text-green-700 hover:bg-green-50 bg-transparent"
                                 onClick={handleSendToApproval}
                                 disabled={sendingApproval}
                             >
@@ -664,7 +849,7 @@ function ProductRow({ product, isViewer, isAdmin, isMarketing, isPlanner, showRe
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 bg-transparent"
                                 onClick={handleDelete}
                                 disabled={deleting}
                             >

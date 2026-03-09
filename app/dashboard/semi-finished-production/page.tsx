@@ -16,7 +16,11 @@ export default async function SemiFinishedProductionPage() {
         redirect("/dashboard/semi-finished-production/ahsap-boya");
     } else if (role === "AHSAP_ISKELET") {
         redirect("/dashboard/semi-finished-production/ahsap-iskelet");
-    } else if (["ADMIN", "PLANNER", "ENGINEER"].includes(role)) {
+    } else if (role === "PLASTIK") {
+        redirect("/dashboard/semi-finished-production/plastik");
+    } else if (role === "SUNGER_DOKUM") {
+        redirect("/dashboard/semi-finished-production/sunger-dokum");
+    } else if (!["ADMIN", "PLANNER", "METAL"].includes(role)) {
         // Diğer roller için Metal'e yönlendir (varsayılan)
         redirect("/dashboard/semi-finished-production/metal");
     } else {

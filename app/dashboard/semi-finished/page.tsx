@@ -22,7 +22,7 @@ export default async function SemiFinishedPage({
     const session = await auth();
     const role = (session?.user as any)?.role;
 
-    if (!["ADMIN", "PLANNER", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "PLANNER"].includes(role)) {
         redirect("/dashboard");
     }
 

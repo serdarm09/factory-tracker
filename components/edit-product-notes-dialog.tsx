@@ -15,6 +15,7 @@ interface EditProductNotesDialogProps {
     productId: number;
     productName: string;
     currentNotes: {
+        description?: string | null;
         aciklama1?: string | null;
         aciklama2?: string | null;
         aciklama3?: string | null;
@@ -33,6 +34,7 @@ export function EditProductNotesDialog({
 }: EditProductNotesDialogProps) {
     const [loading, setLoading] = useState(false);
     const [notes, setNotes] = useState({
+        description: currentNotes.description || "",
         aciklama1: currentNotes.aciklama1 || "",
         aciklama2: currentNotes.aciklama2 || "",
         aciklama3: currentNotes.aciklama3 || "",
@@ -43,6 +45,7 @@ export function EditProductNotesDialog({
     useEffect(() => {
         if (open) {
             setNotes({
+                description: currentNotes.description || "",
                 aciklama1: currentNotes.aciklama1 || "",
                 aciklama2: currentNotes.aciklama2 || "",
                 aciklama3: currentNotes.aciklama3 || "",
@@ -79,47 +82,64 @@ export function EditProductNotesDialog({
                 <form onSubmit={handleSubmit}>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label htmlFor="aciklama1">Açıklama 1</Label>
+                            <Label htmlFor="description">Açıklama</Label>
                             <Textarea
-                                id="aciklama1"
-                                value={notes.aciklama1}
-                                onChange={(e) => setNotes({ ...notes, aciklama1: e.target.value })}
-                                placeholder="İlk açıklama..."
-                                rows={2}
+                                id="description"
+                                value={notes.description}
+                                onChange={(e) => setNotes({ ...notes, description: e.target.value })}
+                                placeholder="Ürün açıklaması..."
+                                rows={3}
                             />
                         </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="aciklama2">Açıklama 2</Label>
-                            <Textarea
-                                id="aciklama2"
-                                value={notes.aciklama2}
-                                onChange={(e) => setNotes({ ...notes, aciklama2: e.target.value })}
-                                placeholder="İkinci açıklama..."
-                                rows={2}
-                            />
-                        </div>
+                        <div className="border-t pt-4">
+                            <h3 className="text-sm font-semibold mb-3">Sipariş Notları</h3>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="aciklama3">Açıklama 3</Label>
-                            <Textarea
-                                id="aciklama3"
-                                value={notes.aciklama3}
-                                onChange={(e) => setNotes({ ...notes, aciklama3: e.target.value })}
-                                placeholder="Üçüncü açıklama..."
-                                rows={2}
-                            />
-                        </div>
+                            <div className="space-y-3">
+                                <div className="space-y-2">
+                                    <Label htmlFor="aciklama1">Açıklama 1</Label>
+                                    <Textarea
+                                        id="aciklama1"
+                                        value={notes.aciklama1}
+                                        onChange={(e) => setNotes({ ...notes, aciklama1: e.target.value })}
+                                        placeholder="İlk açıklama..."
+                                        rows={2}
+                                    />
+                                </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="aciklama4">Açıklama 4</Label>
-                            <Textarea
-                                id="aciklama4"
-                                value={notes.aciklama4}
-                                onChange={(e) => setNotes({ ...notes, aciklama4: e.target.value })}
-                                placeholder="Dördüncü açıklama..."
-                                rows={2}
-                            />
+                                <div className="space-y-2">
+                                    <Label htmlFor="aciklama2">Açıklama 2</Label>
+                                    <Textarea
+                                        id="aciklama2"
+                                        value={notes.aciklama2}
+                                        onChange={(e) => setNotes({ ...notes, aciklama2: e.target.value })}
+                                        placeholder="İkinci açıklama..."
+                                        rows={2}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="aciklama3">Açıklama 3</Label>
+                                    <Textarea
+                                        id="aciklama3"
+                                        value={notes.aciklama3}
+                                        onChange={(e) => setNotes({ ...notes, aciklama3: e.target.value })}
+                                        placeholder="Üçüncü açıklama..."
+                                        rows={2}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="aciklama4">Açıklama 4</Label>
+                                    <Textarea
+                                        id="aciklama4"
+                                        value={notes.aciklama4}
+                                        onChange={(e) => setNotes({ ...notes, aciklama4: e.target.value })}
+                                        placeholder="Dördüncü açıklama..."
+                                        rows={2}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
 

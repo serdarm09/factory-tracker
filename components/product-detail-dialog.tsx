@@ -193,39 +193,26 @@ export function ProductDetailDialog({ open, onOpenChange, product, userRole }: P
 
                 <div className="space-y-6 mt-4">
                     {/* NetSim Sipariş Bilgileri (En Üstte) */}
-                    {(product.aciklama1 || product.aciklama2 || product.aciklama3 || product.aciklama4 || product.dstAdi) && (
-                        <div className="space-y-2">
-                            <Label className="text-amber-700 font-semibold text-base">📋 NetSim Sipariş Bilgileri</Label>
-                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
-                                {/* Renk Bilgisi */}
-                                {product.dstAdi && (
-                                    <div className="bg-blue-50 p-3 rounded border border-blue-200 text-sm mb-3">
-                                        <span className="font-medium text-blue-700">🎨 Renk/DST:</span> <span className="font-bold text-blue-900">{product.dstAdi}</span>
+                    {(product.aciklama1 || product.aciklama2 || product.aciklama3 || product.aciklama4 || product.dstAdi || product.marketingDescription) && (
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
+                            <h4 className="font-semibold text-sm text-amber-800 mb-2">📋 Satış / NetSim Açıklamaları</h4>
+                            <div className="space-y-2 text-sm">
+                                {product.marketingDescription && (
+                                    <div className="bg-blue-50/80 p-2 rounded border border-blue-200">
+                                        <span className="font-bold text-blue-900 block mb-0.5 text-xs">Satış/Pazarlama Notu:</span>
+                                        <span className="font-medium text-blue-800 whitespace-pre-wrap">{product.marketingDescription}</span>
                                     </div>
                                 )}
-                                {/* Açıklamalar */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    {product.aciklama1 && (
-                                        <div className="bg-white p-2 rounded border border-amber-100 text-sm">
-                                            <span className="font-medium text-amber-700">Açıklama 1:</span> {product.aciklama1}
-                                        </div>
-                                    )}
-                                    {product.aciklama2 && (
-                                        <div className="bg-white p-2 rounded border border-amber-100 text-sm">
-                                            <span className="font-medium text-amber-700">Açıklama 2:</span> {product.aciklama2}
-                                        </div>
-                                    )}
-                                    {product.aciklama3 && (
-                                        <div className="bg-white p-2 rounded border border-amber-100 text-sm">
-                                            <span className="font-medium text-amber-700">Açıklama 3:</span> {product.aciklama3}
-                                        </div>
-                                    )}
-                                    {product.aciklama4 && (
-                                        <div className="bg-white p-2 rounded border border-amber-100 text-sm">
-                                            <span className="font-medium text-amber-700">Açıklama 4:</span> {product.aciklama4}
-                                        </div>
-                                    )}
-                                </div>
+                                {product.dstAdi && (
+                                    <div className="bg-indigo-50/80 p-2 rounded border border-indigo-200">
+                                        <span className="font-bold text-indigo-900 block mb-0.5 text-xs">DST (Değişken Stok):</span>
+                                        <span className="font-medium text-indigo-800">{product.dstAdi}</span>
+                                    </div>
+                                )}
+                                {product.aciklama1 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 1:</span> <span className="font-medium">{product.aciklama1}</span></div>}
+                                {product.aciklama2 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 2:</span> <span className="font-medium">{product.aciklama2}</span></div>}
+                                {product.aciklama3 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 3:</span> <span className="font-medium">{product.aciklama3}</span></div>}
+                                {product.aciklama4 && <div className="bg-white/60 p-2 rounded border border-amber-100"><span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 4:</span> <span className="font-medium">{product.aciklama4}</span></div>}
                             </div>
                         </div>
                     )}
@@ -500,22 +487,7 @@ export function ProductDetailDialog({ open, onOpenChange, product, userRole }: P
                     {/* Butonlar */}
                     {canEdit && (
                         <div className="flex gap-3">
-                            <Button
-                                onClick={() => handleSubmit(false)}
-                                disabled={loading}
-                                variant="outline"
-                                className="flex-1 h-12 text-base font-medium"
-                            >
-                                {loading ? (
-                                    <>
-                                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                                        İşleniyor...
-                                    </>
-                                ) : (
-                                    "Kaydet"
-                                )}
-                            </Button>
-                            {!["APPROVED", "IN_PRODUCTION", "COMPLETED", "SHIPPED"].includes(product.status) && (
+                            {!["APPROVED", "IN_PRODUCTION", "COMPLETED", "SHIPPED"].includes(product.status) ? (
                                 <Button
                                     onClick={() => handleSubmit(true)}
                                     disabled={loading}
@@ -528,6 +500,22 @@ export function ProductDetailDialog({ open, onOpenChange, product, userRole }: P
                                         </>
                                     ) : (
                                         "Kaydet ve Onaya Gönder"
+                                    )}
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={() => handleSubmit(false)}
+                                    disabled={loading}
+                                    variant="outline"
+                                    className="flex-1 h-12 text-base font-medium"
+                                >
+                                    {loading ? (
+                                        <>
+                                            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                                            İşleniyor...
+                                        </>
+                                    ) : (
+                                        "Kaydet"
                                     )}
                                 </Button>
                             )}

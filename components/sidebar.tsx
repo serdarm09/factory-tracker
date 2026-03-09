@@ -41,10 +41,10 @@ export async function Sidebar() {
     }
 
     const links = [
-        { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "MARKETER", "ENGINEER"], shortcut: "D" },
+        { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "MARKETER", "YARİMAMUL"], shortcut: "D" },
         { name: "NetSim Siparisler", href: "/dashboard/netsim", icon: Database, roles: ["ADMIN", "PLANNER"], shortcut: "N" },
         { name: "Siparis Planlama", href: "/dashboard/planning", icon: CalendarDays, roles: ["ADMIN", "PLANNER"], shortcut: "P" },
-        { name: "Uretim", href: "/dashboard/production-planning", icon: Wrench, roles: ["ADMIN", "PLANNER", "ENGINEER"], shortcut: "E" },
+        { name: "Uretim", href: "/dashboard/production-planning", icon: Wrench, roles: ["ADMIN", "PLANNER", "KALITE"], shortcut: "E" },
         { name: "Uretim Takvimi", href: "/dashboard/production-calendar", icon: Calendar, roles: ["ADMIN"], shortcut: "K" },
         // Yarı Mamül burada submenu olarak eklenecek
         {
@@ -56,11 +56,11 @@ export async function Sidebar() {
             shortcut: "A"
         },
         { name: "Pazarlama", href: "/dashboard/marketing", icon: Megaphone, roles: ["ADMIN", "MARKETER"], shortcut: "M" },
-        { name: "Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "WAREHOUSE", "ENGINEER"], shortcut: "W" },
-        { name: "Sevk Edilenler", href: "/dashboard/shipped", icon: Truck, roles: ["ADMIN", "MARKETER", "WAREHOUSE", "WORKER", "ENGINEER"], shortcut: "T" },
+        { name: "Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "WAREHOUSE"], shortcut: "W" },
+        { name: "Sevk Edilenler", href: "/dashboard/shipped", icon: Truck, roles: ["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"], shortcut: "T" },
         { name: "Urun girisi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WAREHOUSE"], shortcut: "U" },
         { name: "Kullanicilar", href: "/dashboard/admin/users", icon: Users, roles: ["ADMIN"] },
-        { name: "Katalog", href: "/dashboard/admin/catalog", icon: ClipboardList, roles: ["ADMIN"] },
+        { name: "Katalog", href: "/dashboard/admin/catalog", icon: ClipboardList, roles: ["ADMIN", "PLANNER"] },
         { name: "Ozellik Yonetimi", href: "/dashboard/admin/features", icon: Settings2, roles: ["ADMIN", "PLANNER"] },
         { name: "Destek Talepleri", href: "/dashboard/admin/support", icon: LifeBuoy, roles: ["ADMIN"] },
         { name: "Kayitlar (Log)", href: "/dashboard/admin/logs", icon: ClipboardList, roles: ["ADMIN"] },

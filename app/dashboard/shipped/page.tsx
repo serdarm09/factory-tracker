@@ -9,41 +9,41 @@ export default async function ShippedPage() {
 
     const role = (session.user as any).role;
 
-    // Get all shipments with their items and product details
-    const shipments = await prisma.shipment.findMany({
-        orderBy: { createdAt: "desc" },
+    // KALİTE rolü bu sayfayi gorememeli
+    if (role === "KALITE") {
+        redirect("/dashboard/production-planning");
+    }
+
+    // TÜM sevk edilmiş ürünleri getir (shippedQty > 0)
+    const allShippedProducts = await prisma.product.findMany({
+        where: {
+            shippedQty: { gt: 0 },
+            NOT: { sku: { startsWith: "MANUAL-" } }
+        },
         include: {
-            items: {
+            order: true,
+            creator: {
+                select: { username: true }
+            },
+            shipmentItems: {
                 include: {
-                    product: {
-                        include: {
-                            order: true,
-                            creator: {
-                                select: { username: true }
-                            }
+                    shipment: {
+                        select: {
+                            id: true,
+                            company: true,
+                            driverName: true,
+                            vehiclePlate: true,
+                            exitDate: true,
+                            estimatedDate: true,
+                            status: true,
+                            createdAt: true
                         }
                     }
                 }
             }
-        }
+        },
+        orderBy: { createdAt: "desc" }
     });
-
-    // Flatten shipment items for table display
-    const shippedItems = shipments.flatMap(shipment =>
-        shipment.items.map(item => ({
-            id: item.id,
-            shipmentId: shipment.id,
-            shipmentDate: shipment.createdAt,
-            exitDate: shipment.exitDate,
-            estimatedDate: shipment.estimatedDate,
-            company: shipment.company,
-            driverName: shipment.driverName,
-            vehiclePlate: shipment.vehiclePlate,
-            shipmentStatus: shipment.status,
-            quantity: item.quantity,
-            product: item.product
-        }))
-    );
 
     return (
         <div className="p-6 space-y-6">
@@ -55,7 +55,7 @@ export default async function ShippedPage() {
             </div>
 
             <ShippedProductsTable
-                shippedItems={shippedItems}
+                shippedProducts={allShippedProducts}
                 userRole={role}
             />
         </div>

@@ -15,7 +15,7 @@ export default async function CatalogPage({
     searchParams: { q?: string; page?: string };
 }) {
     const session = await auth();
-    if (!session || (session.user as any).role !== "ADMIN") {
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
         redirect("/dashboard");
     }
 

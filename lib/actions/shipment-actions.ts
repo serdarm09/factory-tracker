@@ -46,32 +46,39 @@ export async function createShipment(data: {
     try {
         // AI FIX: Sevkiyat oluşturulurken storedQty ve shippedQty güncellemesi eklendi
         // Önceki haliyle sadece shipment kaydı oluşturuluyordu, stok güncellenmiyordu (hayalet stok)
-        const shipment = await prisma.shipment.create({
-            data: {
-                company: data.company,
-                driverName: data.driverName,
-                vehiclePlate: data.vehiclePlate,
-                estimatedDate: data.estimatedDate,
-                status: 'PLANNED',
-                items: {
-                    create: data.items.map(item => ({
-                        productId: item.productId,
-                        quantity: item.quantity
-                    }))
-                }
-            }
-        });
-
-        // Ürünlerin storedQty ve shippedQty değerlerini güncelle
-        for (const item of data.items) {
-            await prisma.product.update({
-                where: { id: item.productId },
+        // AI FIX: Replace sequential updates with a transaction wrapper.
+        // It's still necessary to iterate map since each product has a specific quantity,
+        // but executing them via Promise.all within tx minimizes connection time.
+        const shipment = await prisma.$transaction(async (tx) => {
+            const newShipment = await tx.shipment.create({
                 data: {
-                    storedQty: { decrement: item.quantity },
-                    shippedQty: { increment: item.quantity }
+                    company: data.company,
+                    driverName: data.driverName,
+                    vehiclePlate: data.vehiclePlate,
+                    estimatedDate: data.estimatedDate,
+                    status: 'PLANNED',
+                    items: {
+                        create: data.items.map(item => ({
+                            productId: item.productId,
+                            quantity: item.quantity
+                        }))
+                    }
                 }
             });
-        }
+
+            // Ürünlerin storedQty ve shippedQty değerlerini güncelle
+            await Promise.all(data.items.map(item =>
+                tx.product.update({
+                    where: { id: item.productId },
+                    data: {
+                        storedQty: { decrement: item.quantity },
+                        shippedQty: { increment: item.quantity }
+                    }
+                })
+            ));
+
+            return newShipment;
+        });
 
         await createAuditLog(
             "CREATE_SHIPMENT",
@@ -97,6 +104,7 @@ export async function shipProduct(data: {
     driverName?: string;
     vehiclePlate?: string;
     note?: string;
+    partsShipped?: string; // EVET | HAYIR | DAHA_SONRA
 }) {
     const session = await auth();
     if (!session) return { error: "Yetkisiz işlem" };
@@ -143,7 +151,8 @@ export async function shipProduct(data: {
                     items: {
                         create: [{
                             productId: data.productId,
-                            quantity: data.quantity
+                            quantity: data.quantity,
+                            partsShipped: data.partsShipped || null
                         }]
                     }
                 }
@@ -170,6 +179,8 @@ export async function shipProduct(data: {
         revalidatePath("/dashboard/marketing");
         revalidatePath("/dashboard/shipment");
         revalidatePath("/dashboard/production-planning");
+        revalidatePath("/dashboard/planning");
+        revalidatePath("/dashboard/production");
 
         return { success: true, shipmentId: shipment.id };
     } catch (e) {

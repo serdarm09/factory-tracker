@@ -34,7 +34,8 @@ export {
     updateProductionStageQuantity,
     updateProductStages,
     clearAllProductionData,
-    transferToWarehouse
+    transferToWarehouse,
+    updateProductShelf
 } from './actions/product-actions';
 
 // User actions

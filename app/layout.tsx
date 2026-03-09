@@ -21,13 +21,22 @@ export default async function RootLayout({
   const isLoggedIn = !!session?.user;
 
   return (
-    <html lang="en">
-      <body className="font-sans">
+    <html lang="tr" suppressHydrationWarning>
+      <body className="font-sans" suppressHydrationWarning>
         <AuthSessionProvider>
+          {/*
+            ÖNEMLI: forcedTheme="light" ile tema zorla sabitlendi.
+            Sebep 1: "system" modunda Windows/Edge dark modda ise tüm arayüz bozuluyordu.
+            Sebep 2: defaultTheme="light" tek başına yetmez — next-themes kullanıcı
+            tercihini localStorage'a kaydeder ve eski dark tercih varsa onu kullanır.
+            forcedTheme localStorage'ı tamamen yok sayar, her zaman light mode açılır.
+            Bu site yalnızca light modda tasarlanmıştır. forcedTheme'i kaldırma!
+          */}
           <ThemeProvider
             attribute="class"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="light"
+            forcedTheme="light"
+            enableSystem={false}
             disableTransitionOnChange
           >
             {children}

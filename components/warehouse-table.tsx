@@ -2,15 +2,18 @@
 
 import { toast } from "sonner";
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { ExportButton } from "@/components/export-button";
+
+const BarcodeDisplay = dynamic(() => import("@/components/barcode-display"), { ssr: false });
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { updateProduct, getMasters, shipProduct } from "@/lib/actions";
-import { Pencil, Plus, Truck, Printer } from "lucide-react";
+import { updateProduct, getMasters, shipProduct, updateProductShelf } from "@/lib/actions";
+import { Pencil, Plus, Truck, Printer, X } from "lucide-react";
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
@@ -19,7 +22,7 @@ import { ProductImage } from "@/components/product-image";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect } from "react";
 import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
-import { BarcodeLabelPrint } from "@/components/barcode-label-print";
+
 import { Pagination } from "@/components/ui/pagination";
 
 
@@ -33,6 +36,7 @@ type Product = {
     shipped?: number;
     available?: number;
     storedQty?: number; // Depodaki miktar
+    storedDate?: Date | null; // Depoya ilk giris tarihi
     shippedQty?: number; // Sevk edilen miktar
     systemCode: string;
     barcode: string | null;
@@ -41,7 +45,7 @@ type Product = {
     material?: string | null;
     description?: string | null;
     // shelf?: string | null; // Removed
-    inventory: { shelf: string; quantity: number }[];
+    inventory: { id: number; shelf: string; quantity: number }[];
     createdAt: Date;
     creator?: { username: string };
     orderDate?: Date;
@@ -180,6 +184,134 @@ function EditProductDialog({ product, role }: { product: Product, role: string }
     );
 }
 
+// Raf bilgisi düzenleme - WAREHOUSE ve ADMIN kullanıcıları için
+// Mevcut rafları düzenler, yeni raf yoksa ekleme formu gösterir
+function EditShelfDialog({ product }: { product: Product }) {
+    const [open, setOpen] = useState(false);
+    const [shelves, setShelves] = useState<{ id?: number; shelf: string; quantity: number }[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (open) {
+            if (product.inventory.length > 0) {
+                setShelves(product.inventory.map(i => ({ ...i })));
+            } else {
+                // Raf kaydı yoksa boş bir satır aç
+                setShelves([{ shelf: "", quantity: product.storedQty || 1 }]);
+            }
+        }
+    }, [open, product.inventory, product.storedQty]);
+
+    const addRow = () => {
+        setShelves(prev => [...prev, { shelf: "", quantity: 1 }]);
+    };
+
+    const removeRow = (idx: number) => {
+        if (shelves.length === 1) return;
+        setShelves(prev => prev.filter((_, i) => i !== idx));
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        const result = await updateProductShelf(product.id, shelves);
+        if (result.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Raf bilgisi güncellendi");
+            setOpen(false);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-9 p-0 touch-manipulation" title="Raf Düzenle">
+                    <Pencil className="h-4 w-4" />
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+                <DialogHeader>
+                    <DialogTitle className="text-base">Raf Bilgisi</DialogTitle>
+                    <DialogDescription className="text-sm font-medium text-slate-700 truncate">{product.name}</DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3 py-1">
+                    {/* Başlık satırı */}
+                    <div className="grid grid-cols-[1fr_80px_32px] gap-2 px-1">
+                        <span className="text-xs font-medium text-slate-500">Raf Adı</span>
+                        <span className="text-xs font-medium text-slate-500 text-center">Adet</span>
+                        <span />
+                    </div>
+
+                    {shelves.map((inv, idx) => (
+                        <div key={idx} className="grid grid-cols-[1fr_80px_32px] gap-2 items-center">
+                            <Input
+                                value={inv.shelf}
+                                onChange={(e) => {
+                                    const updated = [...shelves];
+                                    updated[idx] = { ...updated[idx], shelf: e.target.value };
+                                    setShelves(updated);
+                                }}
+                                placeholder="örn: A-12"
+                                className="h-11 text-base touch-manipulation"
+                            />
+                            <Input
+                                type="number"
+                                value={inv.quantity}
+                                min={1}
+                                onChange={(e) => {
+                                    const updated = [...shelves];
+                                    updated[idx] = { ...updated[idx], quantity: parseInt(e.target.value) || 1 };
+                                    setShelves(updated);
+                                }}
+                                className="h-11 text-base text-center touch-manipulation"
+                                readOnly={!!inv.id}
+                            />
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-11 w-8 p-0 text-slate-400 hover:text-red-500"
+                                onClick={() => removeRow(idx)}
+                                disabled={shelves.length === 1}
+                                type="button"
+                            >
+                                ✕
+                            </Button>
+                        </div>
+                    ))}
+
+                    {/* Yeni raf ekle - sadece yeni (id'siz) satır eklenebilir */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-10 text-sm touch-manipulation"
+                        onClick={addRow}
+                        type="button"
+                    >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Yeni Raf Ekle
+                    </Button>
+                </div>
+
+                <Button
+                    onClick={handleSave}
+                    disabled={loading}
+                    className="w-full h-12 text-base touch-manipulation"
+                >
+                    {loading ? "Kaydediliyor..." : "Kaydet"}
+                </Button>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+const PARTS_SHIPPED_OPTIONS = [
+    { value: "EVET",        label: "Ayak veya Aksesuar sevk edildi",    color: "bg-green-50 border-green-400 text-green-800"  },
+    { value: "HAYIR",       label: "Ayak veya Aksesuar sevk edilmedi",  color: "bg-red-50 border-red-400 text-red-800"        },
+    { value: "DAHA_SONRA",  label: "Ayak veya Aksesuar sevk edilecek",  color: "bg-amber-50 border-amber-400 text-amber-800"  },
+];
+
 // Ship Product Dialog - for warehouse users to ship products
 function ShipProductDialog({ product, role }: { product: Product, role: string }) {
     const [open, setOpen] = useState(false);
@@ -188,23 +320,20 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
     const [company, setCompany] = useState(product.company || "");
     const [driverName, setDriverName] = useState("");
     const [vehiclePlate, setVehiclePlate] = useState("");
+    const [partsShipped, setPartsShipped] = useState<string>("");
 
-    // Calculate available quantity for shipping from storedQty (depodaki miktar)
     const storedQty = (product as any).storedQty || 0;
     const available = storedQty;
 
-    // Only show for roles that can ship (not ENGINEER - they only view)
-    if (!["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"].includes(role)) {
-        return null;
-    }
-
-    // Don't show if nothing available to ship
-    if (available <= 0) {
-        return null;
-    }
+    if (!["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"].includes(role)) return null;
+    if (available <= 0) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!partsShipped) {
+            toast.error("Lütfen parça sevkiyat durumunu seçin");
+            return;
+        }
         setLoading(true);
 
         const result = await shipProduct({
@@ -212,7 +341,8 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
             quantity: parseInt(quantity),
             company: company,
             driverName: driverName || undefined,
-            vehiclePlate: vehiclePlate || undefined
+            vehiclePlate: vehiclePlate || undefined,
+            partsShipped: partsShipped,
         });
 
         if (result.error) {
@@ -223,6 +353,7 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
             setQuantity("");
             setDriverName("");
             setVehiclePlate("");
+            setPartsShipped("");
         }
         setLoading(false);
     };
@@ -235,14 +366,14 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
                     Sevk
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Truck className="h-5 w-5 text-green-600" />
                         Ürün Sevk Et
                     </DialogTitle>
                     <DialogDescription>
-                        {product.name} - Depoda mevcut: <span className="font-bold text-green-600">{available}</span> adet
+                        {product.name} — Depoda: <span className="font-bold text-green-600">{available}</span> adet
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -256,7 +387,7 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
                             max={available}
                             required
                             placeholder={`Max: ${available}`}
-                            className="text-lg font-bold"
+                            className="text-lg font-bold h-12 touch-manipulation"
                         />
                     </div>
                     <div className="space-y-2">
@@ -266,15 +397,17 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
                             onChange={(e) => setCompany(e.target.value)}
                             required
                             placeholder="Firma adı"
+                            className="h-11 touch-manipulation"
                         />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-2">
                             <Label>Sürücü Adı</Label>
                             <Input
                                 value={driverName}
                                 onChange={(e) => setDriverName(e.target.value)}
                                 placeholder="Opsiyonel"
+                                className="h-11 touch-manipulation"
                             />
                         </div>
                         <div className="space-y-2">
@@ -283,14 +416,37 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
                                 value={vehiclePlate}
                                 onChange={(e) => setVehiclePlate(e.target.value)}
                                 placeholder="Opsiyonel"
+                                className="h-11 touch-manipulation"
                             />
                         </div>
                     </div>
-                    <div className="pt-4 border-t">
+
+                    {/* Parça sevkiyat sorusu */}
+                    <div className="space-y-2 pt-1">
+                        <Label className="text-sm font-semibold">Ayak veya Aksesuar sevk edildi mi? *</Label>
+                        <div className="flex flex-col gap-2">
+                            {PARTS_SHIPPED_OPTIONS.map(opt => (
+                                <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => setPartsShipped(opt.value)}
+                                    className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all touch-manipulation
+                                        ${partsShipped === opt.value
+                                            ? opt.color + " border-opacity-100 shadow-sm"
+                                            : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                                        }`}
+                                >
+                                    {partsShipped === opt.value ? "✓ " : ""}{opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="pt-2 border-t">
                         <Button
                             type="submit"
-                            className="w-full bg-green-600 hover:bg-green-700"
-                            disabled={loading || !quantity || parseInt(quantity) <= 0}
+                            className="w-full h-12 text-base bg-green-600 hover:bg-green-700 touch-manipulation"
+                            disabled={loading || !quantity || parseInt(quantity) <= 0 || !partsShipped}
                         >
                             {loading ? "Sevk ediliyor..." : `${quantity || 0} Adet Sevk Et`}
                         </Button>
@@ -304,38 +460,184 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
 // Print Barcode Label Button
 function PrintLabelButton({ product }: { product: Product }) {
     const [open, setOpen] = useState(false);
+    const [sevkYeri, setSevkYeri] = useState("");
 
-    // Sadece barkodu olan ürünler için göster
-    if (!product.barcode) {
-        return null;
-    }
+    if (!product.barcode) return null;
+
+    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeriVal?: string) => {
+        let barcodeDataUrl = '';
+        if (p.barcode) {
+            try {
+                const canvas = document.createElement('canvas');
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const JsBarcode = require('jsbarcode');
+                JsBarcode(canvas, p.barcode, { format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 10 });
+                barcodeDataUrl = canvas.toDataURL('image/png');
+            } catch (error) {
+                console.error('Barcode generation error:', error);
+            }
+        }
+
+        const origin = window.location.origin;
+        const isEnglish = variant === 'marisit-logo-en' || variant === 'cezzone-en' || variant === 'no-logo-en';
+
+        const logoHTML = variant === 'marisit-logo' || variant === 'marisit-logo-en'
+            ? `<img src="${origin}/image.png" alt="MARİSİT" style="height:100px;margin-bottom:4px;" />`
+            : variant === 'marisit-text'
+                ? `<div class="logo">MARİSİT</div><div style="font-size:11px;color:#555;letter-spacing:1px;">FURNITURE MANUFACTURING</div>`
+                : variant === 'cezzone' || variant === 'cezzone-en'
+                    ? `<img src="${origin}/cezzonelogo.png" alt="Cezzone" style="height:180px;margin-bottom:4px;" />`
+                    : '';
+
+        const labels = isEnglish ? {
+            firma: 'Customer', urunKodu: 'Product Code', urunAdi: 'Product Name', barkod: 'Barcode',
+            termin: 'Due Date', planlanan: 'Planned', kumas: 'Fabric', adet: 'Pcs',
+            barcodTitle: 'BARCODE', sevkYeri: 'Shipping Destination', dstAdi: 'Fabric / Destination'
+        } : {
+            firma: 'Firma', urunKodu: 'Ürün Kodu', urunAdi: 'Ürün Adı', barkod: 'Barkod',
+            termin: 'Termin Tarihi', planlanan: 'Planlanan', kumas: 'Kumaş', adet: 'Adet',
+            barcodTitle: 'BARKOD', sevkYeri: 'Sevk Yeri', dstAdi: 'DST Adı'
+        };
+
+        const printContent = `
+            <html>
+                <head>
+                    <title>${p.name}</title>
+                    <style>
+                        @page { margin: 10mm; size: A4 landscape; }
+                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                        body { font-family: Arial, sans-serif; padding: 16px; border: 3px solid black; background: white; color: black; }
+                        .header { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 14px; }
+                        .logo { font-size: 48px; font-weight: bold; color: black; letter-spacing: 3px; }
+                        .info-rows { margin: 12px 0; }
+                        .info-row { font-size: 25px; margin-bottom: 6px; line-height: 1.4; }
+                        .info-row .lbl { font-weight: bold; color: #333; }
+                        .info-row .val { margin-left: 8px; }
+                        .barcode-image { display: block; margin: 14px 0; width: 80%; max-width: 600px; height: auto; }
+                        .barcode-number { font-family: 'Courier New', monospace; font-size: 14pt; font-weight: bold; margin-top: 6px; letter-spacing: 2px; text-align: left; }
+                        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">${logoHTML}</div>
+                    <div class="info-rows">
+                        <div class="info-row"><span class="lbl">${labels.firma}:</span><span class="val">${p.company || '-'}</span></div>
+                        ${sevkYeriVal ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.sevkYeri}:</span><span class="val" style="font-weight:bold;">${sevkYeriVal}</span></div>` : ''}
+                        <div class="info-row"><span class="lbl">${labels.urunAdi}:</span><span class="val">${p.name}</span></div>
+                        <div class="info-row"><span class="lbl">${labels.urunKodu}:</span><span class="val">${p.model}</span></div>
+                        <div class="info-row"><span class="lbl">${labels.planlanan}:</span><span class="val">${p.quantity} ${labels.adet}</span></div>
+                        ${p.fabricType ? `<div class="info-row"><span class="lbl">${labels.dstAdi}:</span><span class="val">${p.fabricType}</span></div>` : ''}
+                    </div>
+                    ${barcodeDataUrl ? `
+                    <div>
+                        <img src="${barcodeDataUrl}" alt="Barcode" class="barcode-image" />
+                        <div class="barcode-number">${p.barcode}</div>
+                    </div>` : ''}
+                </body>
+            </html>
+        `;
+        const printWindow = window.open('', '', 'width=600,height=800');
+        if (printWindow) {
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            printWindow.focus();
+            setTimeout(() => { printWindow.print(); setTimeout(() => printWindow.close(), 500); }, 500);
+        }
+    };
 
     return (
         <>
-            <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => setOpen(true)}
-            >
+            <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setOpen(true)}>
                 <Printer className="h-4 w-4" />
             </Button>
-            <BarcodeLabelPrint
-                open={open}
-                onOpenChange={setOpen}
-                product={{
-                    barcode: product.barcode,
-                    name: product.name,
-                    model: product.model,
-                    company: product.company
-                }}
-            />
+            <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSevkYeri(""); }}>
+                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Printer className="h-5 w-5" />
+                            Çıktı Türü Seçin
+                        </DialogTitle>
+                        <DialogDescription>{product.name}</DialogDescription>
+                    </DialogHeader>
+
+                    {/* Sevk Yeri */}
+                    <div className="space-y-1 pb-1">
+                        <label className="text-xs font-medium text-slate-600">Sevk Yeri (opsiyonel)</label>
+                        <input
+                            type="text"
+                            placeholder="ör. İstanbul / Port Said / Dubai..."
+                            value={sevkYeri}
+                            onChange={(e) => setSevkYeri(e.target.value)}
+                            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        {sevkYeri && (
+                            <p className="text-xs text-blue-600">✓ Çıktıda &quot;Sevk Yeri: {sevkYeri}&quot; olarak görünecek</p>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        {/* Türkçe */}
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-1">Türkçe</p>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'marisit-logo', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
+                            <span>MARİSİT Logolu (TR)</span>
+                        </Button>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'cezzone', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
+                            <span>Cezzone Logolu (TR)</span>
+                        </Button>
+                        <Button variant="outline" className="justify-start gap-4 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'marisit-text', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            <span className="font-bold tracking-widest text-sm">MARİSİT</span>
+                            <span className="text-slate-500">Yazı Logolu (TR)</span>
+                        </Button>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'no-logo', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            <span className="text-slate-400 text-sm">— Logosuz (TR)</span>
+                        </Button>
+
+                        {/* English */}
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-2">English</p>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'marisit-logo-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
+                            <span>MARİSİT Logolu (EN)</span>
+                        </Button>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'cezzone-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
+                            <span>Cezzone Logolu (EN)</span>
+                        </Button>
+                        <Button variant="outline" className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(product, 'no-logo-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            <span className="text-slate-400 text-sm">— Logosuz (EN)</span>
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
 
+import { useRouter } from "next/navigation";
+
 export function WarehouseTable({ products, role }: { products: Product[], role: string }) {
+    const router = useRouter();
     const [search, setSearch] = useState("");
+
+    // Auto-poll the server for new changes without reloading the page
+    useEffect(() => {
+        const interval = setInterval(() => {
+            router.refresh();
+        }, 10000); // 10 seconds
+        return () => clearInterval(interval);
+    }, [router]);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [sortColumn, setSortColumn] = useState<keyof Product | null>(null);
@@ -440,17 +742,18 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
 
     return (
         <div className="space-y-4">
-            <div className="flex gap-4">
+            {/* Filtre Satırı - tablet uyumlu */}
+            <div className="flex flex-wrap gap-2 items-center">
                 <Input
                     placeholder="Ara: Ürün, Kod, Barkod veya Raf..."
                     value={search}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    className="max-w-sm"
+                    className="flex-1 min-w-[200px] max-w-sm"
                 />
                 <select
                     value={statusFilter}
                     onChange={(e) => handleStatusFilterChange(e.target.value)}
-                    className="h-10 w-[180px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="h-10 w-[150px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
                 >
                     <option value="ALL">Tümü</option>
                     <option value="APPROVED">Onaylananlar</option>
@@ -483,6 +786,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             "Planlanan": p.quantity,
                             "Üretilen": p.produced,
                             "Termin": new Date(p.terminDate).toLocaleDateString('tr-TR'),
+                            "Depo Giriş": p.storedDate ? new Date(p.storedDate).toLocaleDateString('tr-TR') : '-',
                             "Durum": p.status === 'COMPLETED' ? 'Tamamlandı' :
                                 p.status === 'APPROVED' ? 'Onaylandı' :
                                     p.status === 'PENDING' ? 'Bekliyor' :
@@ -494,11 +798,12 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                 </div>
             </div>
 
-            <div className="rounded-md border bg-white">
-                <Table>
+            {/* Tablo - yatay kaydırmalı, tablet uyumlu */}
+            <div className="rounded-md border bg-white overflow-x-auto">
+                <Table className="min-w-[700px]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('systemCode')}>
+                            <TableHead className="cursor-pointer hover:bg-slate-50 hidden lg:table-cell" onClick={() => handleSort('systemCode')}>
                                 Sistem Kodu <SortIcon column="systemCode" />
                             </TableHead>
                             <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('name')}>
@@ -507,20 +812,23 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                             <TableHead className="cursor-pointer hover:bg-slate-50">
                                 Raf
                             </TableHead>
-                            <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('material')}>
+                            <TableHead className="hidden xl:table-cell cursor-pointer hover:bg-slate-50" onClick={() => handleSort('material')}>
                                 Malzeme <SortIcon column="material" />
                             </TableHead>
-                            <TableHead>Not</TableHead>
+                            <TableHead className="hidden xl:table-cell">Not</TableHead>
                             <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('company')}>
                                 Firma <SortIcon column="company" />
                             </TableHead>
                             <TableHead className="cursor-pointer hover:bg-slate-50" onClick={() => handleSort('terminDate')}>
                                 Termin <SortIcon column="terminDate" />
                             </TableHead>
-                            <TableHead>Barkod</TableHead>
-                            <TableHead>Durum</TableHead>
+                            <TableHead className="hidden lg:table-cell cursor-pointer hover:bg-slate-50" onClick={() => handleSort('storedDate' as any)}>
+                                Depo Giriş <SortIcon column={"storedDate" as any} />
+                            </TableHead>
+                            <TableHead className="hidden lg:table-cell">Barkod</TableHead>
+                            <TableHead className="hidden md:table-cell">Durum</TableHead>
                             <TableHead className="text-right cursor-pointer hover:bg-slate-50" onClick={() => handleSort('produced')}>
-                                İlerleme <SortIcon column="produced" />
+                                Stok <SortIcon column="produced" />
                             </TableHead>
                             <TableHead>Sevk</TableHead>
                             <TableHead></TableHead>
@@ -536,22 +844,24 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     }`}
                                 onClick={() => handleRowClick(p)}
                             >
-                                <TableCell className="font-mono">{p.systemCode}</TableCell>
+                                <TableCell className="font-mono text-xs hidden lg:table-cell">{p.systemCode}</TableCell>
                                 <TableCell>
-                                    <div className="font-semibold">{p.name}</div>
+                                    <div className="font-semibold text-sm">{p.name}</div>
                                     <div className="text-xs text-slate-500">{p.model}</div>
+                                    {/* Tablet'te gizlenen bilgileri küçük satır olarak göster */}
+                                    <div className="lg:hidden text-xs text-slate-400 mt-0.5 font-mono">{p.systemCode}</div>
                                 </TableCell>
                                 <TableCell>
-                                    <div className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded inline-block font-mono font-bold text-xs">
+                                    <div className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded inline-block font-mono font-bold text-xs whitespace-nowrap">
                                         {p.inventory?.map(i => i.shelf).join(", ") || '-'}
                                     </div>
                                 </TableCell>
-                                <TableCell className="text-sm">{p.material || '-'}</TableCell>
-                                <TableCell className="max-w-[150px] truncate text-sm text-slate-500" title={p.description || ''}>
+                                <TableCell className="text-sm hidden xl:table-cell">{p.material || '-'}</TableCell>
+                                <TableCell className="max-w-[150px] truncate text-sm text-slate-500 hidden xl:table-cell" title={p.description || ''}>
                                     {p.description || '-'}
                                 </TableCell>
-                                <TableCell>{p.company || "-"}</TableCell>
-                                <TableCell className="text-xs font-mono">
+                                <TableCell className="text-sm">{p.company || "-"}</TableCell>
+                                <TableCell className="text-xs font-mono whitespace-nowrap">
                                     <span className={`${new Date(p.terminDate) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'text-red-600 font-bold' :
                                         new Date(p.terminDate) <= new Date(new Date().setDate(new Date().getDate() + 3)) ? 'text-amber-600 font-bold' :
                                             'text-slate-500'
@@ -559,8 +869,13 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                         {new Date(p.terminDate).toLocaleDateString('tr-TR')}
                                     </span>
                                 </TableCell>
-                                <TableCell className="font-mono text-xs">{p.barcode || "-"}</TableCell>
-                                <TableCell>
+                                <TableCell className="text-xs font-mono hidden lg:table-cell whitespace-nowrap">
+                                    <span className="text-slate-600">
+                                        {p.storedDate ? new Date(p.storedDate).toLocaleDateString('tr-TR') : '-'}
+                                    </span>
+                                </TableCell>
+                                <TableCell className="font-mono text-xs hidden lg:table-cell">{p.barcode || "-"}</TableCell>
+                                <TableCell className="hidden md:table-cell">
                                     <div onClick={e => e.stopPropagation()}>
                                         <ProductTimelineDialog
                                             productId={p.id}
@@ -570,22 +885,19 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                                     ? 'bg-blue-100 text-blue-700 border border-blue-200'
                                                     : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                                                     }`}>
-                                                    {p.produced >= p.quantity ? 'TAMAMLANDI' : 'EKSİK / KISMİ'}
+                                                    {p.produced >= p.quantity ? 'TAMAM' : 'EKSİK'}
                                                 </span>
                                             }
                                         />
                                     </div>
                                 </TableCell>
-                                <TableCell className="text-right">
-                                    <div className={`font-bold ${p.produced >= p.quantity ? 'text-blue-600' : 'text-yellow-600'}`}>
-                                        {p.produced} / {p.quantity} ({Math.round((p.produced / p.quantity) * 100)}%)
+                                <TableCell className="text-right whitespace-nowrap">
+                                    <div className="text-sm font-bold text-green-600">
+                                        {p.storedQty || 0} adet
                                     </div>
-                                    <div className="text-xs mt-1">
-                                        <span className="text-green-600 font-medium">Depoda: {p.storedQty || 0}</span>
-                                        {(p.shipped || 0) > 0 && (
-                                            <span className="text-slate-500 ml-2">| Sevk: {p.shipped}</span>
-                                        )}
-                                    </div>
+                                    {(p.shipped || 0) > 0 && (
+                                        <div className="text-xs text-slate-400">Sevk: {p.shipped}</div>
+                                    )}
                                 </TableCell>
                                 <TableCell>
                                     <div onClick={(e) => e.stopPropagation()}>
@@ -593,9 +905,14 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    {role !== 'VIEWER' && role !== 'ENGINEER' && (
-                                        <div onClick={(e) => e.stopPropagation()} className="flex gap-2">
-                                            <EditProductDialog product={p} role={role} />
+                                    {role !== 'VIEWER' && role !== 'KALITE' && (
+                                        <div onClick={(e) => e.stopPropagation()} className="flex gap-1">
+                                            {role === 'ADMIN'
+                                                ? <EditProductDialog product={p} role={role} />
+                                                : role === 'WAREHOUSE'
+                                                    ? <EditShelfDialog product={p} />
+                                                    : null
+                                            }
                                             <PrintLabelButton product={p} />
                                         </div>
                                     )}
@@ -651,7 +968,17 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <Detail label="Sevk Edilen" value={viewProduct.shippedQty || 0} />
                                     <Detail label="Raf" value={viewProduct.inventory?.map(i => `${i.shelf} (${i.quantity})`).join(", ")} />
                                     <Detail label="Durum" value={viewProduct.status} />
-                                    <Detail label="Barkod" value={viewProduct.barcode || '-'} />
+                                    {viewProduct.barcode ? (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-xs text-slate-500">Barkod</span>
+                                            <div className="flex flex-col items-start gap-1">
+                                                <BarcodeDisplay value={viewProduct.barcode} />
+                                                <span className="font-mono text-xs text-slate-600">{viewProduct.barcode}</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <Detail label="Barkod" value="-" />
+                                    )}
                                 </Section>
 
                                 <Section title="Tarihler">

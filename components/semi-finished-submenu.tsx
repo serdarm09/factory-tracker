@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Factory, Wrench, Paintbrush, Box } from "lucide-react";
+import { ChevronDown, ChevronRight, Factory, Wrench, Paintbrush, Box, Layers, Droplets } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 interface SemiFinishedSubmenuProps {
@@ -19,10 +19,12 @@ export function SemiFinishedSubmenu({ userRole }: SemiFinishedSubmenuProps) {
     }
 
     const allSubLinks = [
-        { name: "Metal", href: "/dashboard/semi-finished-production/metal", icon: Wrench, color: "text-slate-400", roles: ["ADMIN", "PLANNER", "ENGINEER", "METAL"] },
-        { name: "Konfeksiyon", href: "/dashboard/semi-finished-production/konfeksiyon", icon: Factory, color: "text-blue-400", roles: ["ADMIN", "PLANNER", "ENGINEER", "KONFEKSIYON"] },
-        { name: "Ahşap Boya", href: "/dashboard/semi-finished-production/ahsap-boya", icon: Paintbrush, color: "text-amber-400", roles: ["ADMIN", "PLANNER", "ENGINEER", "AHSAP_BOYA"] },
-        { name: "Ahşap İskelet", href: "/dashboard/semi-finished-production/ahsap-iskelet", icon: Box, color: "text-brown-400", roles: ["ADMIN", "PLANNER", "ENGINEER", "AHSAP_ISKELET"] },
+        { name: "Metal", href: "/dashboard/semi-finished-production/metal", icon: Wrench, color: "text-slate-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "METAL"] },
+        { name: "Konfeksiyon", href: "/dashboard/semi-finished-production/konfeksiyon", icon: Factory, color: "text-blue-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "KONFEKSIYON"] },
+        { name: "Ahşap Boya", href: "/dashboard/semi-finished-production/ahsap-boya", icon: Paintbrush, color: "text-amber-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_BOYA"] },
+        { name: "Ahşap İskelet", href: "/dashboard/semi-finished-production/ahsap-iskelet", icon: Box, color: "text-brown-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_ISKELET"] },
+        { name: "Plastik", href: "/dashboard/semi-finished-production/plastik", icon: Layers, color: "text-purple-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "PLASTIK"] },
+        { name: "Sünger Döküm", href: "/dashboard/semi-finished-production/sunger-dokum", icon: Droplets, color: "text-cyan-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "SUNGER_DOKUM"] },
     ];
 
     // Kullanıcının görebileceği kategorileri filtrele
@@ -42,11 +44,10 @@ export function SemiFinishedSubmenu({ userRole }: SemiFinishedSubmenuProps) {
         return (
             <Link
                 href={link.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                    isActive
-                        ? "bg-slate-800 text-white"
-                        : "hover:bg-slate-800 text-slate-300"
-                }`}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                    ? "bg-slate-800 text-white"
+                    : "hover:bg-slate-800 text-slate-300"
+                    }`}
             >
                 <Icon className={`w-5 h-5 ${link.color}`} />
                 <span className="font-medium">{link.name}</span>
@@ -80,11 +81,10 @@ export function SemiFinishedSubmenu({ userRole }: SemiFinishedSubmenuProps) {
                             <Link
                                 key={link.href}
                                 href={link.href}
-                                className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
-                                    isActive
-                                        ? "bg-slate-800 text-white"
-                                        : "hover:bg-slate-800/50 text-slate-300"
-                                }`}
+                                className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${isActive
+                                    ? "bg-slate-800 text-white"
+                                    : "hover:bg-slate-800/50 text-slate-300"
+                                    }`}
                             >
                                 <Icon className={`w-4 h-4 ${link.color}`} />
                                 <span className="text-sm">{link.name}</span>

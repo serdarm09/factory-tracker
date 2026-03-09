@@ -14,7 +14,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Truck, Filter, X, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Package, User, Car } from "lucide-react";
+import { Truck, Filter, X, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Package, User, Car, Info } from "lucide-react";
 import { ExportButton } from "@/components/export-button";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -22,38 +22,34 @@ import { ProductImage } from "@/components/product-image";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
-interface ShippedItem {
-    id: number;
-    shipmentId: number;
-    shipmentDate: Date;
-    exitDate: Date | null;
-    estimatedDate: Date | null;
-    company: string;
-    driverName: string | null;
-    vehiclePlate: string | null;
-    shipmentStatus: string;
-    quantity: number;
-    product: any;
-}
-
 interface ShippedProductsTableProps {
-    shippedItems: ShippedItem[];
+    shippedProducts: any[];
     userRole: string;
 }
 
-export function ShippedProductsTable({ shippedItems, userRole }: ShippedProductsTableProps) {
-    const [viewItem, setViewItem] = useState<ShippedItem | null>(null);
+const PARTS_SHIPPED_MAP: Record<string, { label: string; cls: string }> = {
+    EVET:       { label: "Ayak veya Aksesuar sevk edildi",    cls: "bg-green-100 text-green-800 border border-green-200"  },
+    HAYIR:      { label: "Ayak veya Aksesuar sevk edilmedi",  cls: "bg-red-100 text-red-800 border border-red-200"        },
+    DAHA_SONRA: { label: "Ayak veya Aksesuar sevk edilecek",  cls: "bg-amber-100 text-amber-800 border border-amber-200"  },
+};
+
+function PartsShippedBadge({ value }: { value: string | null | undefined }) {
+    if (!value) return <span className="text-xs text-slate-400">—</span>;
+    const info = PARTS_SHIPPED_MAP[value] ?? { label: value, cls: "bg-slate-100 text-slate-700" };
+    return <span className={`text-xs px-2 py-0.5 rounded font-medium ${info.cls}`}>{info.label}</span>;
+}
+
+export function ShippedProductsTable({ shippedProducts, userRole }: ShippedProductsTableProps) {
+    const [viewProduct, setViewProduct] = useState<any | null>(null);
     const [viewOpen, setViewOpen] = useState(false);
     const [exportLoading, setExportLoading] = useState(false);
 
     // Filter states
     const [filterProduct, setFilterProduct] = useState("");
     const [filterCompany, setFilterCompany] = useState("");
-    const [filterDriver, setFilterDriver] = useState("");
-    const [filterPlate, setFilterPlate] = useState("");
-    const [filterDateFrom, setFilterDateFrom] = useState("");
-    const [filterDateTo, setFilterDateTo] = useState("");
-    const [filterStatus, setFilterStatus] = useState("all");
+    const [filterHasShipment, setFilterHasShipment] = useState("all"); // all, with, without
+    const [filterDateStart, setFilterDateStart] = useState(""); // Sevk tarihi başlangıç
+    const [filterDateEnd, setFilterDateEnd] = useState("");   // Sevk tarihi bitiş
 
     // Pagination states
     const [currentPage, setCurrentPage] = useState(1);
@@ -62,111 +58,93 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
     // Get unique values for dropdowns
     const uniqueCompanies = useMemo(() => {
         const companies = new Set<string>();
-        shippedItems.forEach(item => {
-            if (item.company) companies.add(item.company);
+        shippedProducts.forEach(product => {
+            if (product.order?.company) companies.add(product.order.company);
         });
         return Array.from(companies).sort();
-    }, [shippedItems]);
+    }, [shippedProducts]);
 
-    const uniqueDrivers = useMemo(() => {
-        const drivers = new Set<string>();
-        shippedItems.forEach(item => {
-            if (item.driverName) drivers.add(item.driverName);
-        });
-        return Array.from(drivers).sort();
-    }, [shippedItems]);
-
-    // Filter items
-    const filteredItems = useMemo(() => {
-        return shippedItems.filter(item => {
+    // Filter products
+    const filteredProducts = useMemo(() => {
+        return shippedProducts.filter(product => {
             // Product search
             if (filterProduct) {
                 const searchLower = filterProduct.toLowerCase();
-                const matchName = item.product?.name?.toLowerCase().includes(searchLower);
-                const matchModel = item.product?.model?.toLowerCase().includes(searchLower);
-                const matchCode = item.product?.systemCode?.toLowerCase().includes(searchLower);
-                const matchBarcode = item.product?.barcode?.toLowerCase().includes(searchLower);
+                const matchName = product.name?.toLowerCase().includes(searchLower);
+                const matchModel = product.model?.toLowerCase().includes(searchLower);
+                const matchCode = product.systemCode?.toLowerCase().includes(searchLower);
+                const matchBarcode = product.barcode?.toLowerCase().includes(searchLower);
                 if (!matchName && !matchModel && !matchCode && !matchBarcode) return false;
             }
 
             // Company filter
-            if (filterCompany && item.company !== filterCompany) return false;
+            if (filterCompany && product.order?.company !== filterCompany) return false;
 
-            // Driver filter
-            if (filterDriver) {
-                if (!item.driverName?.toLowerCase().includes(filterDriver.toLowerCase())) return false;
-            }
+            // Shipment record filter
+            if (filterHasShipment === "with" && product.shipmentItems.length === 0) return false;
+            if (filterHasShipment === "without" && product.shipmentItems.length > 0) return false;
 
-            // Plate filter
-            if (filterPlate) {
-                if (!item.vehiclePlate?.toLowerCase().includes(filterPlate.toLowerCase())) return false;
-            }
+            // Sevk tarihi filtresi - en son shipmentItem.shipment.exitDate'e göre
+            if (filterDateStart || filterDateEnd) {
+                const shipDates = product.shipmentItems
+                    ?.map((item: any) => item.shipment?.exitDate)
+                    .filter(Boolean)
+                    .map((d: string) => new Date(d).getTime());
+                const latestShipDate = shipDates?.length > 0 ? Math.max(...shipDates) : null;
 
-            // Status filter
-            if (filterStatus !== "all" && item.shipmentStatus !== filterStatus) return false;
-
-            // Date from
-            if (filterDateFrom) {
-                const itemDate = new Date(item.shipmentDate);
-                const fromDate = new Date(filterDateFrom);
-                if (itemDate < fromDate) return false;
-            }
-
-            // Date to
-            if (filterDateTo) {
-                const itemDate = new Date(item.shipmentDate);
-                const toDate = new Date(filterDateTo);
-                toDate.setHours(23, 59, 59, 999);
-                if (itemDate > toDate) return false;
+                if (!latestShipDate) return false; // Tarihi olan sevkiyat yoksa gösterme
+                if (filterDateStart && latestShipDate < new Date(filterDateStart).getTime()) return false;
+                if (filterDateEnd) {
+                    const endDate = new Date(filterDateEnd);
+                    endDate.setHours(23, 59, 59, 999);
+                    if (latestShipDate > endDate.getTime()) return false;
+                }
             }
 
             return true;
         });
-    }, [shippedItems, filterProduct, filterCompany, filterDriver, filterPlate, filterStatus, filterDateFrom, filterDateTo]);
+    }, [shippedProducts, filterProduct, filterCompany, filterHasShipment, filterDateStart, filterDateEnd]);
 
     // Pagination
-    const totalPages = Math.ceil(filteredItems.length / pageSize);
-    const paginatedItems = filteredItems.slice(
+    const totalPages = Math.ceil(filteredProducts.length / pageSize);
+    const paginatedProducts = filteredProducts.slice(
         (currentPage - 1) * pageSize,
         currentPage * pageSize
     );
 
     // Check if any filter is active
-    const hasActiveFilters = filterProduct || filterCompany || filterDriver || filterPlate || filterStatus !== "all" || filterDateFrom || filterDateTo;
+    const hasActiveFilters = filterProduct || filterCompany || filterHasShipment !== "all" || filterDateStart || filterDateEnd;
 
     // Clear all filters
     const clearFilters = () => {
         setFilterProduct("");
         setFilterCompany("");
-        setFilterDriver("");
-        setFilterPlate("");
-        setFilterStatus("all");
-        setFilterDateFrom("");
-        setFilterDateTo("");
+        setFilterHasShipment("all");
+        setFilterDateStart("");
+        setFilterDateEnd("");
         setCurrentPage(1);
     };
 
-    const handleRowClick = (item: ShippedItem) => {
-        setViewItem(item);
+    const handleRowClick = (product: any) => {
+        setViewProduct(product);
         setViewOpen(true);
     };
 
     const handleExport = () => {
         setExportLoading(true);
         try {
-            const exportData = filteredItems.map(item => ({
-                "Sevkiyat No": item.shipmentId,
-                "Ürün Kodu": item.product?.systemCode || '',
-                "Ürün Adı": item.product?.name || '',
-                "Model": item.product?.model || '',
-                "Sevk Edilen Firma": item.company,
-                "Sevk Adedi": item.quantity,
-                "Sevk Tarihi": item.shipmentDate ? format(new Date(item.shipmentDate), "dd.MM.yyyy HH:mm") : '',
-                "Sürücü Adı": item.driverName || '',
-                "Araç Plakası": item.vehiclePlate || '',
-                "Durum": item.shipmentStatus === "SHIPPED" ? "Sevk Edildi" : item.shipmentStatus === "DELIVERED" ? "Teslim Edildi" : "Planlandı",
-                "Barkod": item.product?.barcode || '',
-                "Planlayan": item.product?.creator?.username || '',
+            const exportData = filteredProducts.map(product => ({
+                "Ürün Kodu": product.systemCode || '',
+                "Ürün Adı": product.name || '',
+                "Model": product.model || '',
+                "Firma": product.order?.company || '',
+                "Sipariş": product.order?.name || '',
+                "Sevk Edilen Adet": product.shippedQty || 0,
+                "Sevkiyat Bilgisi": product.shipmentItems && product.shipmentItems.length > 0 ?
+                    product.shipmentItems.map((item: any) => `${item.shipment.company || 'Belirtilmedi'}`).join(', ') :
+                    'Kayıt yok',
+                "Barkod": product.barcode || '',
+                "Planlayan": product.creator?.username || '',
             }));
 
             const wb = XLSX.utils.book_new();
@@ -182,31 +160,33 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
     };
 
     // Calculate totals
-    const totalShipped = filteredItems.reduce((sum, item) => sum + item.quantity, 0);
+    const totalShipped = filteredProducts.reduce((sum, product) => sum + (product.shippedQty || 0), 0);
+    const productsWithShipmentRecord = shippedProducts.filter(p => p.shipmentItems.length > 0).length;
+    const productsWithoutShipmentRecord = shippedProducts.filter(p => p.shipmentItems.length === 0).length;
 
     return (
         <div className="space-y-6">
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="bg-orange-50 border-orange-200">
-                    <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-orange-600 font-medium">Toplam Sevkiyat</p>
-                                <p className="text-3xl font-bold text-orange-700">{new Set(shippedItems.map(i => i.shipmentId)).size}</p>
-                            </div>
-                            <Truck className="h-10 w-10 text-orange-400" />
-                        </div>
-                    </CardContent>
-                </Card>
                 <Card className="bg-blue-50 border-blue-200">
                     <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-blue-600 font-medium">Sevk Edilen Ürün</p>
-                                <p className="text-3xl font-bold text-blue-700">{totalShipped}</p>
+                                <p className="text-sm text-blue-600 font-medium">Toplam Sevk Edilen</p>
+                                <p className="text-3xl font-bold text-blue-700">{shippedProducts.length}</p>
                             </div>
                             <Package className="h-10 w-10 text-blue-400" />
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card className="bg-orange-50 border-orange-200">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm text-orange-600 font-medium">Sevk Edilen Adet</p>
+                                <p className="text-3xl font-bold text-orange-700">{totalShipped}</p>
+                            </div>
+                            <Truck className="h-10 w-10 text-orange-400" />
                         </div>
                     </CardContent>
                 </Card>
@@ -214,21 +194,21 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                     <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-green-600 font-medium">Farklı Firma</p>
-                                <p className="text-3xl font-bold text-green-700">{uniqueCompanies.length}</p>
+                                <p className="text-sm text-green-600 font-medium">Kayıtlı Sevkiyat</p>
+                                <p className="text-3xl font-bold text-green-700">{productsWithShipmentRecord}</p>
                             </div>
                             <User className="h-10 w-10 text-green-400" />
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="bg-purple-50 border-purple-200">
+                <Card className="bg-amber-50 border-amber-200">
                     <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-purple-600 font-medium">Farklı Sürücü</p>
-                                <p className="text-3xl font-bold text-purple-700">{uniqueDrivers.length}</p>
+                                <p className="text-sm text-amber-600 font-medium">Kayıtsız Sevkiyat</p>
+                                <p className="text-3xl font-bold text-amber-700">{productsWithoutShipmentRecord}</p>
                             </div>
-                            <Car className="h-10 w-10 text-purple-400" />
+                            <Car className="h-10 w-10 text-amber-400" />
                         </div>
                     </CardContent>
                 </Card>
@@ -253,7 +233,7 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                                 variant="outline"
                                 size="sm"
                                 onClick={handleExport}
-                                disabled={exportLoading || filteredItems.length === 0}
+                                disabled={exportLoading || filteredProducts.length === 0}
                                 className="gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
                             >
                                 <Download className="h-4 w-4" />
@@ -263,7 +243,7 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {/* Product Search */}
                         <div className="space-y-1">
                             <label className="text-xs font-medium text-muted-foreground">Ürün Ara</label>
@@ -280,7 +260,7 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
 
                         {/* Company Filter */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Sevk Edilen Firma</label>
+                            <label className="text-xs font-medium text-muted-foreground">Firma</label>
                             <Select value={filterCompany} onValueChange={(v) => { setFilterCompany(v === "all" ? "" : v); setCurrentPage(1); }}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Tüm firmalar" />
@@ -294,59 +274,36 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                             </Select>
                         </div>
 
-                        {/* Driver Filter */}
+                        {/* Shipment Record Filter */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Sürücü</label>
-                            <Input
-                                placeholder="Sürücü adı..."
-                                value={filterDriver}
-                                onChange={(e) => { setFilterDriver(e.target.value); setCurrentPage(1); }}
-                            />
-                        </div>
-
-                        {/* Plate Filter */}
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Plaka</label>
-                            <Input
-                                placeholder="Araç plakası..."
-                                value={filterPlate}
-                                onChange={(e) => { setFilterPlate(e.target.value); setCurrentPage(1); }}
-                            />
-                        </div>
-
-                        {/* Status Filter */}
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Durum</label>
-                            <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setCurrentPage(1); }}>
+                            <label className="text-xs font-medium text-muted-foreground">Sevkiyat Kaydı</label>
+                            <Select value={filterHasShipment} onValueChange={(v) => { setFilterHasShipment(v); setCurrentPage(1); }}>
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Tüm durumlar" />
+                                    <SelectValue placeholder="Tümü" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">Tüm Durumlar</SelectItem>
-                                    <SelectItem value="PLANNED">Planlandı</SelectItem>
-                                    <SelectItem value="SHIPPED">Sevk Edildi</SelectItem>
-                                    <SelectItem value="DELIVERED">Teslim Edildi</SelectItem>
+                                    <SelectItem value="all">Tümü</SelectItem>
+                                    <SelectItem value="with">Kayıtlı Olanlar</SelectItem>
+                                    <SelectItem value="without">Kayıtsız Olanlar</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
 
-                        {/* Date From */}
+                        {/* Date Range Filter - Sevk Tarihi */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Başlangıç</label>
+                            <label className="text-xs font-medium text-muted-foreground">Sevk Tarihi (Başlangıç)</label>
                             <Input
                                 type="date"
-                                value={filterDateFrom}
-                                onChange={(e) => { setFilterDateFrom(e.target.value); setCurrentPage(1); }}
+                                value={filterDateStart}
+                                onChange={(e) => { setFilterDateStart(e.target.value); setCurrentPage(1); }}
                             />
                         </div>
-
-                        {/* Date To */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-muted-foreground">Bitiş</label>
+                            <label className="text-xs font-medium text-muted-foreground">Sevk Tarihi (Bitiş)</label>
                             <Input
                                 type="date"
-                                value={filterDateTo}
-                                onChange={(e) => { setFilterDateTo(e.target.value); setCurrentPage(1); }}
+                                value={filterDateEnd}
+                                onChange={(e) => { setFilterDateEnd(e.target.value); setCurrentPage(1); }}
                             />
                         </div>
                     </div>
@@ -367,38 +324,20 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                                     <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterCompany("")} />
                                 </Badge>
                             )}
-                            {filterDriver && (
+                            {filterDateStart && (
                                 <Badge variant="secondary" className="flex items-center gap-1">
-                                    Sürücü: {filterDriver}
-                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterDriver("")} />
+                                    Sevk: {filterDateStart} {filterDateEnd && `→ ${filterDateEnd}`}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => { setFilterDateStart(""); setFilterDateEnd(""); }} />
                                 </Badge>
                             )}
-                            {filterPlate && (
+                            {filterHasShipment !== "all" && (
                                 <Badge variant="secondary" className="flex items-center gap-1">
-                                    Plaka: {filterPlate}
-                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterPlate("")} />
-                                </Badge>
-                            )}
-                            {filterStatus !== "all" && (
-                                <Badge variant="secondary" className="flex items-center gap-1">
-                                    Durum: {filterStatus === "SHIPPED" ? "Sevk Edildi" : filterStatus === "DELIVERED" ? "Teslim Edildi" : "Planlandı"}
-                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterStatus("all")} />
-                                </Badge>
-                            )}
-                            {filterDateFrom && (
-                                <Badge variant="secondary" className="flex items-center gap-1">
-                                    Başlangıç: {filterDateFrom}
-                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterDateFrom("")} />
-                                </Badge>
-                            )}
-                            {filterDateTo && (
-                                <Badge variant="secondary" className="flex items-center gap-1">
-                                    Bitiş: {filterDateTo}
-                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterDateTo("")} />
+                                    Kayıt: {filterHasShipment === "with" ? "Var" : "Yok"}
+                                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterHasShipment("all")} />
                                 </Badge>
                             )}
                             <span className="text-sm font-medium ml-auto">
-                                {filteredItems.length} / {shippedItems.length} kayıt
+                                {filteredProducts.length} / {shippedProducts.length} kayıt
                             </span>
                         </div>
                     )}
@@ -407,97 +346,99 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
 
             {/* Table */}
             <Card>
-                <CardHeader className="bg-orange-50 border-b">
-                    <CardTitle className="flex items-center gap-2 text-orange-900">
+                <CardHeader className="bg-blue-50 border-b">
+                    <CardTitle className="flex items-center gap-2 text-blue-900">
                         <Truck className="h-5 w-5" />
-                        Sevkiyat Kayıtları
-                        <Badge variant="outline" className="ml-2">{filteredItems.length} kayıt</Badge>
+                        Sevk Edilen Ürünler
+                        <Badge variant="outline" className="ml-2">{filteredProducts.length} ürün</Badge>
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[80px]">Sevk No</TableHead>
                                 <TableHead>Ürün</TableHead>
-                                <TableHead>Sevk Firma</TableHead>
-                                <TableHead className="text-center">Adet</TableHead>
+                                <TableHead>Firma</TableHead>
+                                <TableHead>Sipariş</TableHead>
                                 <TableHead>Sevk Tarihi</TableHead>
-                                <TableHead>Sürücü</TableHead>
-                                <TableHead>Plaka</TableHead>
-                                <TableHead>Durum</TableHead>
+                                <TableHead className="text-center">Sevk Edilen</TableHead>
+                                <TableHead>Ayak veya Aksesuar Durumu</TableHead>
+                                <TableHead>Sevkiyat Bilgileri</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {paginatedItems.length === 0 ? (
+                            {paginatedProducts.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                                        {hasActiveFilters ? "Filtrelere uygun kayıt bulunamadı" : "Henüz sevkiyat kaydı bulunmuyor"}
+                                    <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                                        {hasActiveFilters ? "Filtrelere uygun ürün bulunamadı" : "Henüz sevk edilen ürün bulunmuyor"}
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                paginatedItems.map((item) => (
+                                paginatedProducts.map((product) => (
                                     <TableRow
-                                        key={`${item.shipmentId}-${item.id}`}
-                                        className="cursor-pointer hover:bg-orange-50 transition-colors"
-                                        onClick={() => handleRowClick(item)}
+                                        key={product.id}
+                                        className="cursor-pointer hover:bg-blue-50 transition-colors"
+                                        onClick={() => handleRowClick(product)}
                                     >
                                         <TableCell>
-                                            <Badge variant="outline" className="font-mono">#{item.shipmentId}</Badge>
-                                        </TableCell>
-                                        <TableCell>
                                             <div className="flex items-center gap-3">
-                                                {item.product?.imageUrl && (
-                                                    <img src={item.product.imageUrl} alt="" className="w-8 h-8 object-contain rounded border bg-white" />
+                                                {product.imageUrl && (
+                                                    <img src={product.imageUrl} alt="" className="w-8 h-8 object-contain rounded border bg-white" />
                                                 )}
                                                 <div>
-                                                    <div className="font-semibold">{item.product?.name}</div>
-                                                    <div className="text-xs text-slate-500">{item.product?.systemCode}</div>
+                                                    <div className="font-semibold">{product.name}</div>
+                                                    <div className="text-xs text-slate-500">{product.systemCode}</div>
                                                 </div>
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            <span className="font-medium">{item.company}</span>
+                                            <span className="font-medium">{product.order?.company || '-'}</span>
                                         </TableCell>
-                                        <TableCell className="text-center">
-                                            <span className="font-bold text-orange-600 text-lg">{item.quantity}</span>
+                                        <TableCell>
+                                            <span className="text-sm">{product.order?.name || '-'}</span>
                                         </TableCell>
                                         <TableCell>
                                             <div className="text-sm">
-                                                {format(new Date(item.shipmentDate), "dd.MM.yyyy", { locale: tr })}
+                                                {product.shipmentItems && product.shipmentItems.length > 0 ? (() => {
+                                                    const shipDates = product.shipmentItems
+                                                        .map((item: any) => item.shipment?.exitDate)
+                                                        .filter(Boolean)
+                                                        .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
+                                                    return shipDates.length > 0
+                                                        ? <span className="text-teal-700 font-medium">{format(new Date(shipDates[0]), "dd MMM yyyy", { locale: tr })}</span>
+                                                        : <span className="text-slate-400 text-xs">Tarih girilmemiş</span>;
+                                                })() : <span className="text-amber-500 text-xs">—</span>}
                                             </div>
-                                            <div className="text-xs text-slate-400">
-                                                {format(new Date(item.shipmentDate), "HH:mm", { locale: tr })}
+                                        </TableCell>
+                                        <TableCell className="text-center">
+                                            <span className="font-bold text-blue-600 text-lg">{product.shippedQty || 0}</span>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col gap-1">
+                                                {product.shipmentItems && product.shipmentItems.length > 0
+                                                    ? product.shipmentItems.map((item: any, idx: number) => (
+                                                        <PartsShippedBadge key={idx} value={item.partsShipped} />
+                                                    ))
+                                                    : <span className="text-xs text-slate-400">—</span>
+                                                }
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            {item.driverName ? (
-                                                <div className="flex items-center gap-1">
-                                                    <User className="h-3 w-3 text-slate-400" />
-                                                    <span>{item.driverName}</span>
+                                            {product.shipmentItems && product.shipmentItems.length > 0 ? (
+                                                <div className="text-xs space-y-1">
+                                                    {product.shipmentItems.map((item: any, idx: number) => (
+                                                        <div key={idx} className="text-green-700 bg-green-50 px-2 py-1 rounded">
+                                                            ✓ {item.shipment.company || 'Belirtilmedi'}
+                                                            {item.shipment.driverName && ` - ${item.shipment.driverName}`}
+                                                            {item.shipment.vehiclePlate && ` (${item.shipment.vehiclePlate})`}
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             ) : (
-                                                <span className="text-slate-400">-</span>
+                                                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                                                    ⚠ Sevkiyat kaydı yok
+                                                </span>
                                             )}
-                                        </TableCell>
-                                        <TableCell>
-                                            {item.vehiclePlate ? (
-                                                <Badge variant="outline" className="font-mono">
-                                                    {item.vehiclePlate}
-                                                </Badge>
-                                            ) : (
-                                                <span className="text-slate-400">-</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                item.shipmentStatus === 'SHIPPED' ? 'bg-orange-100 text-orange-600' :
-                                                item.shipmentStatus === 'DELIVERED' ? 'bg-green-100 text-green-600' :
-                                                'bg-yellow-100 text-yellow-600'
-                                            }`}>
-                                                {item.shipmentStatus === 'SHIPPED' ? 'SEVK EDİLDİ' :
-                                                 item.shipmentStatus === 'DELIVERED' ? 'TESLİM EDİLDİ' : 'PLANLANDI'}
-                                            </span>
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -527,7 +468,7 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                                         <SelectItem value="100">100</SelectItem>
                                     </SelectContent>
                                 </Select>
-                                <span>Toplam {filteredItems.length} kayıt</span>
+                                <span>Toplam {filteredProducts.length} kayıt</span>
                             </div>
 
                             <div className="flex items-center gap-1">
@@ -581,100 +522,80 @@ export function ShippedProductsTable({ shippedItems, userRole }: ShippedProducts
                 <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Truck className="h-5 w-5 text-orange-600" />
-                            Sevkiyat Detayları #{viewItem?.shipmentId}
+                            <Package className="h-5 w-5 text-blue-600" />
+                            Ürün Detayları
                         </DialogTitle>
                         <DialogDescription>
-                            {viewItem?.product?.name} - {viewItem?.quantity} adet
+                            {viewProduct?.name} - {viewProduct?.shippedQty || 0} adet sevk edildi
                         </DialogDescription>
                     </DialogHeader>
 
-                    {viewItem && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                            {/* Product Info */}
-                            <div className="space-y-4">
-                                <div className="border rounded-lg p-4">
-                                    <h4 className="font-semibold text-sm text-slate-900 border-b pb-2 mb-3">Ürün Bilgileri</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Ürün Kodu:</span>
-                                            <span className="font-mono font-medium">{viewItem.product?.systemCode}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Ürün Adı:</span>
-                                            <span className="font-medium">{viewItem.product?.name}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Model:</span>
-                                            <span>{viewItem.product?.model}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Barkod:</span>
-                                            <span className="font-mono">{viewItem.product?.barcode || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Planlayan:</span>
-                                            <span>{viewItem.product?.creator?.username || '-'}</span>
-                                        </div>
+                    {viewProduct && (
+                        <div className="space-y-4 mt-4">
+                            <div className="border rounded-lg p-4">
+                                <h4 className="font-semibold text-sm text-slate-900 border-b pb-2 mb-3">Ürün Bilgileri</h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Ürün Kodu:</span>
+                                        <span className="font-mono font-medium">{viewProduct.systemCode}</span>
                                     </div>
-                                </div>
-
-                                <div className="border rounded-lg p-4 bg-orange-50">
-                                    <h4 className="font-semibold text-sm text-orange-900 border-b border-orange-200 pb-2 mb-3">Sevk Bilgileri</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex justify-between">
-                                            <span className="text-orange-700">Sevk Adedi:</span>
-                                            <span className="font-bold text-orange-900 text-lg">{viewItem.quantity}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-orange-700">Sevk Tarihi:</span>
-                                            <span className="font-medium">{format(new Date(viewItem.shipmentDate), "dd MMMM yyyy HH:mm", { locale: tr })}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-orange-700">Durum:</span>
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                viewItem.shipmentStatus === 'SHIPPED' ? 'bg-orange-100 text-orange-600' :
-                                                viewItem.shipmentStatus === 'DELIVERED' ? 'bg-green-100 text-green-600' :
-                                                'bg-yellow-100 text-yellow-600'
-                                            }`}>
-                                                {viewItem.shipmentStatus === 'SHIPPED' ? 'SEVK EDİLDİ' :
-                                                 viewItem.shipmentStatus === 'DELIVERED' ? 'TESLİM EDİLDİ' : 'PLANLANDI'}
-                                            </span>
-                                        </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Ürün Adı:</span>
+                                        <span className="font-medium">{viewProduct.name}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Model:</span>
+                                        <span>{viewProduct.model}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Firma:</span>
+                                        <span>{viewProduct.order?.company || '-'}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Sipariş:</span>
+                                        <span>{viewProduct.order?.name || '-'}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Shipment Info */}
-                            <div className="space-y-4">
-                                <div className="border rounded-lg p-4 bg-blue-50">
-                                    <h4 className="font-semibold text-sm text-blue-900 border-b border-blue-200 pb-2 mb-3">Teslimat Bilgileri</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex justify-between">
-                                            <span className="text-blue-700">Sevk Edilen Firma:</span>
-                                            <span className="font-bold text-blue-900">{viewItem.company}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-blue-700">Sürücü Adı:</span>
-                                            <span className="font-medium">{viewItem.driverName || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-blue-700">Araç Plakası:</span>
-                                            <span className="font-mono font-bold">{viewItem.vehiclePlate || '-'}</span>
-                                        </div>
+                            <div className="border rounded-lg p-4">
+                                <h4 className="font-semibold text-sm text-slate-900 border-b pb-2 mb-3">Sevkiyat Bilgileri</h4>
+                                {viewProduct.shipmentItems && viewProduct.shipmentItems.length > 0 ? (
+                                    <div className="space-y-2">
+                                                        {viewProduct.shipmentItems.map((item: any, idx: number) => (
+                                                            <div key={idx} className="bg-green-50 p-3 rounded text-sm space-y-1.5">
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-slate-500">Firma:</span>
+                                                                    <span className="font-medium">{item.shipment.company || 'Belirtilmedi'}</span>
+                                                                </div>
+                                                                {item.shipment.driverName && (
+                                                                    <div className="flex justify-between">
+                                                                        <span className="text-slate-500">Sürücü:</span>
+                                                                        <span>{item.shipment.driverName}</span>
+                                                                    </div>
+                                                                )}
+                                                                {item.shipment.vehiclePlate && (
+                                                                    <div className="flex justify-between">
+                                                                        <span className="text-slate-500">Plaka:</span>
+                                                                        <span className="font-mono">{item.shipment.vehiclePlate}</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-slate-500">Adet:</span>
+                                                                    <span className="font-bold">{item.quantity}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center pt-1 border-t border-green-200">
+                                                                    <span className="text-slate-500 flex items-center gap-1">
+                                                                        <Info className="h-3 w-3" /> Parça Durumu:
+                                                                    </span>
+                                                                    <PartsShippedBadge value={item.partsShipped} />
+                                                                </div>
+                                                            </div>
+                                                        ))}
                                     </div>
-                                </div>
-
-                                {viewItem.product?.imageUrl && (
-                                    <div className="border rounded-lg p-4">
-                                        <h4 className="font-semibold text-sm text-slate-900 border-b pb-2 mb-3">Ürün Görseli</h4>
-                                        <div className="flex justify-center">
-                                            <img
-                                                src={viewItem.product.imageUrl}
-                                                alt={viewItem.product.name}
-                                                className="max-h-48 object-contain rounded border"
-                                            />
-                                        </div>
+                                ) : (
+                                    <div className="bg-amber-50 p-3 rounded text-sm text-amber-700">
+                                        ⚠ Henüz sevkiyat kaydı oluşturulmamış
                                     </div>
                                 )}
                             </div>

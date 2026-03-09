@@ -27,6 +27,9 @@ type Product = {
     company: string | null;
     quantity: number;
     produced: number;
+    foamQty?: number;
+    upholsteryQty?: number;
+    assemblyQty?: number;
     packagedQty?: number;
     storedQty?: number;
     shippedQty?: number;
@@ -52,11 +55,12 @@ type Product = {
     aciklama2?: string | null;
     aciklama3?: string | null;
     aciklama4?: string | null;
+    dstAdi?: string | null;
     order?: { company: string } | null;
 };
 
 // Depoya Giriş Dialog
-function TransferToWarehouseDialog({ product }: { product: Product }) {
+function TransferToWarehouseDialog({ product, onSuccess }: { product: Product; onSuccess?: (productId: number, qty: number) => void }) {
     const [open, setOpen] = useState(false);
     const [quantity, setQuantity] = useState("");
     const [shelf, setShelf] = useState("");
@@ -84,6 +88,7 @@ function TransferToWarehouseDialog({ product }: { product: Product }) {
                 setOpen(false);
                 setQuantity("");
                 setShelf("");
+                onSuccess?.(product.id, parseInt(quantity));
             }
         });
     };
@@ -150,7 +155,7 @@ function TransferToWarehouseDialog({ product }: { product: Product }) {
     );
 }
 
-export function ProductionQueueTable({ products }: { products: Product[] }) {
+export function ProductionQueueTable({ products, onTransferSuccess }: { products: Product[]; onTransferSuccess?: (productId: number, qty: number) => void }) {
     const [search, setSearch] = useState("");
     const [scannedBarcode, setScannedBarcode] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
@@ -163,6 +168,8 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
     const [filterStatus, setFilterStatus] = useState("all");
     const [filterTerminStatus, setFilterTerminStatus] = useState("all"); // all, late, thisWeek, thisMonth
     const [showFilters, setShowFilters] = useState(false);
+    const [printDialogProduct, setPrintDialogProduct] = useState<Product | null>(null);
+    const [printSevkYeri, setPrintSevkYeri] = useState("");
 
     const itemsPerPage = 50;
 
@@ -317,12 +324,12 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
         return <span className="ml-1 text-blue-500">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
     };
 
-    const handlePrint = (p: Product) => {
-        // Generate barcode as base64 image using canvas
+    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeri?: string) => {
         let barcodeDataUrl = '';
         if (p.barcode) {
             try {
                 const canvas = document.createElement('canvas');
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const JsBarcode = require('jsbarcode');
                 JsBarcode(canvas, p.barcode, {
                     format: 'CODE128',
@@ -337,6 +344,29 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
             }
         }
 
+        const origin = window.location.origin;
+        const isEnglish = variant === 'marisit-logo-en' || variant === 'cezzone-en' || variant === 'no-logo-en';
+
+        const logoHTML = variant === 'marisit-logo' || variant === 'marisit-logo-en'
+            ? `<img src="${origin}/image.png" alt="MARİSİT" style="height:100px;margin-bottom:4px;" />`
+            : variant === 'marisit-text'
+                ? `<div class="logo">MARİSİT</div><div style="font-size:11px;color:#555;letter-spacing:1px;">FURNITURE MANUFACTURING</div>`
+                : variant === 'cezzone' || variant === 'cezzone-en'
+                    ? `<img src="${origin}/cezzonelogo.png" alt="Cezzone" style="height:180px;margin-bottom:4px;" />`
+                    : '';
+
+        const labels = isEnglish ? {
+            firma: 'Customer', urunKodu: 'Product Code', urunAdi: 'Product Name', barkod: 'Barcode',
+            termin: 'Due Date', planlanan: 'Planned', ayakRengi: 'Leg Color',
+            kumas: 'Fabric', adet: 'Pcs', barcodTitle: 'BARCODE', sevkYeri: 'Shipping Destination',
+            dstAdi: 'Fabric / Destination'
+        } : {
+            firma: 'Firma', urunKodu: 'Ürün Kodu', urunAdi: 'Ürün Adı', barkod: 'Barkod',
+            termin: 'Termin Tarihi', planlanan: 'Planlanan', ayakRengi: 'Ayak Rengi',
+            kumas: 'Kumaş', adet: 'Adet', barcodTitle: 'BARKOD', sevkYeri: 'Sevk Yeri',
+            dstAdi: 'DST Adı'
+        };
+
         const printContent = `
             <html>
                 <head>
@@ -344,161 +374,35 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     <style>
                         @page { margin: 10mm; size: A4 landscape; }
                         * { margin: 0; padding: 0; box-sizing: border-box; }
-                        body {
-                            font-family: Arial, sans-serif;
-                            padding: 12px;
-                            border: 3px solid black;
-                            background: white;
-                            color: black;
-                            font-size: 12px;
-                        }
-                        .header {
-                            text-align: center;
-                            border-bottom: 2px solid black;
-                            padding-bottom: 8px;
-                            margin-bottom: 12px;
-                        }
-                        .logo {
-                            font-size: 28px;
-                            font-weight: bold;
-                            color: black;
-                            letter-spacing: 3px;
-                        }
-                        .product-title {
-                            font-size: 18px;
-                            margin: 5px 0 3px 0;
-                            font-weight: bold;
-                        }
-                        .product-model {
-                            font-size: 14px;
-                            margin-bottom: 5px;
-                        }
-                        .info-table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            margin: 10px 0;
-                        }
-                        .info-table td {
-                            padding: 5px 10px;
-                            border: 1px solid black;
-                            font-size: 13px;
-                        }
-                        .info-table td:first-child {
-                            font-weight: bold;
-                            width: 150px;
-                            background: #e0e0e0;
-                        }
-                        .barcode-container {
-                            text-align: center;
-                            margin-top: 15px;
-                            padding: 12px;
-                            border: 2px solid black;
-                            background: white;
-                        }
-                        .barcode-label {
-                            font-size: 14px;
-                            font-weight: bold;
-                            margin-bottom: 8px;
-                        }
-                        .barcode-image {
-                            display: block;
-                            margin: 10px auto;
-                            max-width: 400px;
-                        }
-                        .barcode-number {
-                            font-family: 'Courier New', monospace;
-                            font-size: 24px;
-                            font-weight: bold;
-                            margin-top: 8px;
-                            letter-spacing: 3px;
-                        }
-                        .notes {
-                            margin: 10px 0;
-                            padding: 8px;
-                            border: 2px solid black;
-                            background: #f5f5f5;
-                        }
-                        .notes h3 {
-                            font-size: 12px;
-                            margin-bottom: 5px;
-                            font-weight: bold;
-                        }
-                        .note-item {
-                            padding: 4px;
-                            margin: 3px 0;
-                            background: white;
-                            border: 1px solid #999;
-                            font-size: 11px;
-                        }
-                        .footer {
-                            margin-top: 12px;
-                            text-align: center;
-                            font-size: 10px;
-                            border-top: 1px solid black;
-                            padding-top: 6px;
-                        }
+                        body { font-family: Arial, sans-serif; padding: 16px; border: 3px solid black; background: white; color: black; }
+                        .header { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 14px; }
+                        .logo { font-size: 48px; font-weight: bold; color: black; letter-spacing: 3px; }
+                        .info-rows { margin: 12px 0; }
+                        .info-row { font-size: 25px; margin-bottom: 6px; line-height: 1.4; }
+                        .info-row .lbl { font-weight: bold; color: #333; }
+                        .info-row .val { margin-left: 8px; }
+                        .barcode-image { display: block; margin: 14px 0; width: 80%; max-width: 600px; height: auto; }
+                        .barcode-number { font-family: 'Courier New', monospace; font-size: 14pt; font-weight: bold; margin-top: 6px; letter-spacing: 2px; text-align: left; }
+                        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
                     </style>
                 </head>
                 <body>
                     <div class="header">
-                        <div>
-                            <img src="/image.png" alt="Product Image" />
-                        </div>
-                        <div class="product-title">${p.name}</div>
-                        <div class="product-model">${p.model}</div>
+                        ${logoHTML}
                     </div>
-
-
-                    <table class="info-table">
-                        <tr>
-                            <td>Firma</td>
-                            <td>${p.order?.company || p.company || '-'}</td>
-                        </tr>
-                        <tr>
-                            <td>Ürün Kodu</td>
-                            <td>${p.model}</td>
-                        </tr>
-                        <tr>
-                            <td>Barkod</td>
-                            <td style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;">${p.barcode || 'Barkod Yok'}</td>
-                        </tr>
-                        <tr>
-                            <td>Termin Tarihi</td>
-                            <td>${new Date(p.terminDate).toLocaleDateString('tr-TR')}</td>
-                        </tr>
-                        <tr>
-                            <td>Planlanan</td>
-                            <td><strong>${p.quantity} Adet</strong></td>
-                        </tr>
-                        <tr>
-                            <td>Ayak Rengi</td>
-                            <td>${p.footMaterial || '-'}</td>
-                        </tr>
-                        <tr>
-                            <td>Kumaş</td>
-                            <td>${p.fabricType || '-'}</td>
-                        </tr>
-                    </table>
-
-                    ${(p.aciklama1 || p.aciklama2 || p.aciklama3 || p.aciklama4) ? `
-                    <div class="notes">
-                        <h3>SİPARİŞ NOTLARI</h3>
-                        ${p.aciklama1 ? `<div class="note-item"><strong>1:</strong> ${p.aciklama1}</div>` : ''}
-                        ${p.aciklama2 ? `<div class="note-item"><strong>2:</strong> ${p.aciklama2}</div>` : ''}
-                        ${p.aciklama3 ? `<div class="note-item"><strong>3:</strong> ${p.aciklama3}</div>` : ''}
-                        ${p.aciklama4 ? `<div class="note-item"><strong>4:</strong> ${p.aciklama4}</div>` : ''}
+                    <div class="info-rows">
+                        <div class="info-row"><span class="lbl">${labels.firma}:</span><span class="val">${p.order?.company || p.company || '-'}</span></div>
+                        ${sevkYeri ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.sevkYeri}:</span><span class="val" style="font-weight:bold;">${sevkYeri}</span></div>` : ''}
+                        <div class="info-row"><span class="lbl">${labels.urunAdi}:</span><span class="val">${p.name}</span></div>
+                        <div class="info-row"><span class="lbl">${labels.urunKodu}:</span><span class="val">${p.model}</span></div>
+                        <div class="info-row"><span class="lbl">${labels.planlanan}:</span><span class="val">${p.quantity} ${labels.adet}</span></div>
+                        ${p.dstAdi ? `<div class="info-row"><span class="lbl">${labels.dstAdi}:</span><span class="val">${p.dstAdi}</span></div>` : ''}
                     </div>
-                    ` : ''}
-
                     ${barcodeDataUrl ? `
-                    <div class="barcode-container">
-                        <div class="barcode-label">BARKOD</div>
+                    <div>
                         <img src="${barcodeDataUrl}" alt="Barcode" class="barcode-image" />
-                        <div class="barcode-number">
-                            ${p.barcode}
-                        </div>
-                    </div>
-                    ` : ''}
+                        <div class="barcode-number">${p.barcode}</div>
+                    </div>` : ''}
                 </body>
             </html>
         `;
@@ -507,18 +411,15 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
             printWindow.document.write(printContent);
             printWindow.document.close();
             printWindow.focus();
-            // Wait for content to fully render before printing
             setTimeout(() => {
                 printWindow.print();
-                setTimeout(() => {
-                    printWindow.close();
-                }, 500);
+                setTimeout(() => printWindow.close(), 500);
             }, 500);
         }
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-5">
             {/* Özet Kartları */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <button
@@ -556,28 +457,6 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     <div className="text-2xl font-bold text-amber-600">{stats.thisWeek}</div>
                 </button>
             </div>
-
-            {/* AI Insights Summary */}
-            {(stats.late > 0 || stats.totalPackaged > 0) && (
-                <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-lg p-3 flex items-start gap-3 shadow-sm">
-                    <div className="bg-white p-2 rounded-full shadow-sm mt-0.5">
-                        <span className="text-lg">✨</span>
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-violet-800 flex items-center gap-2">
-                            Yapay Zeka Analizi
-                        </h4>
-                        <div className="text-xs text-violet-700 mt-1 space-y-1">
-                            {stats.late > 0 && (
-                                <p>⚠️ <strong>Dikkat:</strong> {stats.late} adet ürünün termini gecikmiş durumda. Öncelikli olarak depoya alınmaları önerilir.</p>
-                            )}
-                            {stats.totalPackaged > 0 && (
-                                <p>📦 <strong>İşlem Bekleyen:</strong> {stats.totalPackaged} adet ürün paketlenmiş ve depoya giriş yapmaya hazır.</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Filtreler */}
             <Card>
@@ -774,8 +653,8 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex items-center gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
-                                                <TransferToWarehouseDialog product={p} />
-                                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePrint(p); }}>
+                                                <TransferToWarehouseDialog product={p} onSuccess={(id, qty) => onTransferSuccess?.(id, qty)} />
+                                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setPrintDialogProduct(p); }}>
                                                     <Printer className="w-4 h-4" />
                                                 </Button>
                                             </div>
@@ -816,12 +695,66 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                                                 </span>
                                             </div>
 
-                                            {/* Custom Progress Bar */}
-                                            <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden mb-4">
-                                                <div
-                                                    className="h-full bg-green-500 transition-all duration-500 ease-out"
-                                                    style={{ width: `${Math.min((p.produced / p.quantity) * 100, 100)}%` }}
-                                                />
+                                            {/* Multi-Stage Progress Bar - Aşama bazlı renkli ilerleme */}
+                                            <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden mb-4 flex">
+                                                {/* Sünger - Mor */}
+                                                {(p.foamQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-purple-500 transition-all duration-500"
+                                                        style={{ width: `${((p.foamQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Sünger: ${p.foamQty || 0}`}
+                                                    />
+                                                )}
+                                                {/* Döşeme - Sarı */}
+                                                {(p.upholsteryQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-yellow-500 transition-all duration-500"
+                                                        style={{ width: `${((p.upholsteryQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Döşeme: ${p.upholsteryQty || 0}`}
+                                                    />
+                                                )}
+                                                {/* Montaj - Turuncu */}
+                                                {(p.assemblyQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-orange-500 transition-all duration-500"
+                                                        style={{ width: `${((p.assemblyQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Montaj: ${p.assemblyQty || 0}`}
+                                                    />
+                                                )}
+                                                {/* Paketleme - Mavi */}
+                                                {(p.packagedQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-blue-500 transition-all duration-500"
+                                                        style={{ width: `${((p.packagedQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Paketleme: ${p.packagedQty || 0}`}
+                                                    />
+                                                )}
+                                                {/* Depo - Yeşil */}
+                                                {(p.storedQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-green-500 transition-all duration-500"
+                                                        style={{ width: `${((p.storedQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Depoda: ${p.storedQty || 0}`}
+                                                    />
+                                                )}
+                                                {/* Sevk - Camgöbeği */}
+                                                {(p.shippedQty || 0) > 0 && (
+                                                    <div
+                                                        className="h-full bg-teal-500 transition-all duration-500"
+                                                        style={{ width: `${((p.shippedQty || 0) / p.quantity) * 100}%` }}
+                                                        title={`Sevk: ${p.shippedQty || 0}`}
+                                                    />
+                                                )}
+                                            </div>
+
+                                            {/* Aşama Göstergeleri */}
+                                            <div className="flex flex-wrap gap-2 mb-4">
+                                                {(p.foamQty || 0) > 0 && <Badge className="bg-purple-500">Sünger: {p.foamQty}</Badge>}
+                                                {(p.upholsteryQty || 0) > 0 && <Badge className="bg-yellow-500 text-black">Döşeme: {p.upholsteryQty}</Badge>}
+                                                {(p.assemblyQty || 0) > 0 && <Badge className="bg-orange-500">Montaj: {p.assemblyQty}</Badge>}
+                                                {(p.packagedQty || 0) > 0 && <Badge className="bg-blue-500">Paket: {p.packagedQty}</Badge>}
+                                                {(p.storedQty || 0) > 0 && <Badge className="bg-green-500">Depo: {p.storedQty}</Badge>}
+                                                {(p.shippedQty || 0) > 0 && <Badge className="bg-teal-500">Sevk: {p.shippedQty}</Badge>}
                                             </div>
 
                                             <div className="grid grid-cols-3 gap-4">
@@ -1019,6 +952,102 @@ export function ProductionQueueTable({ products }: { products: Product[] }) {
                     </Button>
                 </div>
             )}
+
+            {/* Yazdırma Seçenekleri Diyaloğu */}
+            <Dialog open={!!printDialogProduct} onOpenChange={(open) => { if (!open) { setPrintDialogProduct(null); setPrintSevkYeri(""); } }}>
+                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Printer className="h-5 w-5" />
+                            Çıktı Türü Seçin
+                        </DialogTitle>
+                        <DialogDescription>
+                            {printDialogProduct?.name}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Sevk Yeri Girişi */}
+                    <div className="space-y-1 pb-1">
+                        <label className="text-xs font-medium text-slate-600">Sevk Yeri (opsiyonel)</label>
+                        <input
+                            type="text"
+                            placeholder="ör. İstanbul / Port Said / Dubai..."
+                            value={printSevkYeri}
+                            onChange={(e) => setPrintSevkYeri(e.target.value)}
+                            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        {printSevkYeri && (
+                            <p className="text-xs text-blue-600">✓ Çıktıda "Sevk Yeri: {printSevkYeri}" olarak görünecek</p>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        {/* TR Versiyonlar */}
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-1">Türkçe</p>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
+                            <span>MARİSİT Logolu (TR)</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
+                            <span>Cezzone Logolu (TR)</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-4 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-text', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            <span className="font-bold tracking-widest text-sm">MARİSİT</span>
+                            <span className="text-slate-500">Yazı Logolu (TR)</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            <span className="text-slate-400 text-sm">— Logosuz (TR)</span>
+                        </Button>
+
+                        {/* EN Versiyonlar */}
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-2">English</p>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
+                            <span>MARİSİT Logolu (EN)</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
+                            <span>Cezzone Logolu (EN)</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start gap-3 h-auto py-3"
+                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                        >
+                            <span className="text-slate-400 text-sm">— Logosuz (EN)</span>
+                        </Button>   
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

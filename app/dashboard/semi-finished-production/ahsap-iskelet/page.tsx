@@ -10,7 +10,7 @@ export default async function AhsapIskeletProductionPage() {
 
     const role = (session.user as any).role;
     // Ahşap İskelet sayfasını görebilecek roller
-    if (!["ADMIN", "PLANNER", "ENGINEER", "AHSAP_ISKELET"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "AHSAP_ISKELET"].includes(role)) {
         redirect("/dashboard");
     }
 

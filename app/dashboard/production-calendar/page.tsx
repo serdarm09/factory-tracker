@@ -10,18 +10,22 @@ export default async function ProductionCalendarPage() {
     if (!session) redirect("/login");
 
     const role = (session.user as any).role;
-    if (role !== "ADMIN") {
+    const allowedRoles = ["ADMIN", "PLANNER"];
+    if (!allowedRoles.includes(role)) {
         redirect("/dashboard");
     }
 
-    // Onaylanmış, üretimdeki ve tamamlanmış ürünler (PENDING hariç)
-    const products = await prisma.product.findMany({
+    // Onaylanmış, üretimdeki ürünler - tamamı depodaysa gösterme
+    // Manuel eklenen yarı mamül ürünleri (MANUAL-) hariç tut
+    const allProducts = await prisma.product.findMany({
         where: {
             status: {
-                in: ["APPROVED", "IN_PRODUCTION", "COMPLETED"]
+                in: ["APPROVED", "IN_PRODUCTION", "COMPLETED", "SHIPPED"]
             },
-            terminDate: {
-                not: null
+            NOT: {
+                sku: {
+                    startsWith: "MANUAL-"
+                }
             }
         },
         select: {
@@ -41,7 +45,10 @@ export default async function ProductionCalendarPage() {
             assemblyQty: true,
             packagedQty: true,
             storedQty: true,
+            storedDate: true,
             shippedQty: true,
+            unitPrice: true,
+            totalPrice: true,
             engineerNote: true,
             material: true,
             master: true,
@@ -56,16 +63,45 @@ export default async function ProductionCalendarPage() {
             aciklama3: true,
             aciklama4: true,
             dstAdi: true,
+            marketingDescription: true,
             order: {
                 select: {
                     company: true,
-                    name: true
+                    name: true,
+                    customerName: true,
+                    deliveryDate: true,
+                    totalAmount: true,
+                    currency: true,
+                    externalId: true
+                }
+            },
+            shipmentItems: {
+                select: {
+                    quantity: true,
+                    shipment: {
+                        select: {
+                            exitDate: true,
+                            estimatedDate: true
+                        }
+                    }
                 }
             }
         },
         orderBy: {
             terminDate: 'asc'
         }
+    });
+
+    // Sevk tarihini en son shipmentItem'dan hesapla
+    const products = allProducts.map(p => {
+        const shipmentDates = (p as any).shipmentItems
+            ?.map((item: any) => item.shipment?.exitDate || item.shipment?.estimatedDate)
+            .filter(Boolean);
+        const latestShipDate = shipmentDates?.length > 0
+            ? shipmentDates.sort((a: Date, b: Date) => new Date(b).getTime() - new Date(a).getTime())[0]
+            : null;
+        const { shipmentItems: _si, ...rest } = p as any;
+        return { ...rest, shippedDate: latestShipDate };
     });
 
     return (

@@ -1,4 +1,4 @@
-﻿'use server';
+'use server';
 
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -290,7 +290,7 @@ export async function approveProduct(id: number) {
         revalidatePath("/dashboard/planning");
         return { success: true };
     } catch (e) {
-        return { error: "OnaylanÄ±rken hata oluÅŸtu" };
+        return { error: "Onaylanırken hata oluştu" };
     }
 }
 
@@ -319,7 +319,7 @@ export async function marketingApproveProduct(id: number) {
 
         const barcode = product.systemCode;
 
-        // Pazarlama onayÄ± -> Ãœretime gÃ¶nder (barkod atanÄ±r)
+        // Pazarlama onay -> Ãœretime gÃ¶nder (barkod atanÄ±r)
         await prisma.product.update({
             where: { id },
             data: {
@@ -338,13 +338,13 @@ export async function marketingApproveProduct(id: number) {
                     const alissatisNo = parseInt(match[1]);
                     netSimResult = await netSimClient.updateDeliveryDate(alissatisNo, product.terminDate);
                     if (netSimResult.success) {
-                        console.log(`NetSim termin tarihi güncellendi: Order ${alissatisNo}`);
+                        console.log(`[NETSIM SUCCESS] NetSim termin tarihi güncellendi: Order ${alissatisNo}`);
                     } else {
-                        console.warn(`NetSim termin güncelleme hatası: ${netSimResult.error}`);
+                        console.error(`[NETSIM ERROR] NetSim termin güncelleme hatası: ${netSimResult.error}`, netSimResult);
                     }
                 }
             } catch (netSimErr) {
-                console.warn("NetSim baÄŸlantÄ± hatasÄ±:", netSimErr);
+                console.error("[NETSIM FATAL] NetSim bağlantı hatası:", netSimErr);
             }
         }
 
@@ -380,13 +380,13 @@ export async function sendToApproval(id: number) {
         const product = await prisma.product.findUnique({ where: { id } });
         if (!product) return { error: "ÃœrÃ¼n bulunamadÄ±" };
 
-        if (product.status !== "DRAFT") {
-            return { error: "Sadece taslak durumundaki Ã¼rÃ¼nler onaya gÃ¶nderilebilir" };
+        if (!["DRAFT", "PENDING", "REJECTED"].includes(product.status)) {
+            return { error: "Bu ürün zaten onay sürecinde veya tamamlanmış" };
         }
 
         // Termin tarihi kontrolÃ¼
         if (!product.terminDate) {
-            return { error: "Onaya gÃ¶ndermeden Ã¶nce termin tarihi girilmelidir" };
+            return { error: "Onaya göndermeden önce termin tarihi girilmelidir" };
         }
 
         await prisma.product.update({
@@ -462,13 +462,14 @@ export async function sendToProduction(productId: number) {
                         const result = await netSimClient.updateDeliveryDate(alissatisNo, product.terminDate);
                         if (result.success) {
                             netSimUpdated = true;
-                            console.log(`NetSim termin tarihi güncellendi: Siparis ${alissatisNo}, Tarih: ${product.terminDate}`);
+                            console.log(`[NETSIM SUCCESS] NetSim termin tarihi güncellendi: Siparis ${alissatisNo}, Tarih: ${product.terminDate}`);
                         } else {
                             netSimError = result.error || "NetSim güncelleme başarısız";
+                            console.error(`[NETSIM ERROR] NetSim termin güncellenemedi: ${netSimError}`);
                         }
                     }
                 } catch (err) {
-                    console.error("NetSim termin tarihi gÃ¼ncellenemedi:", err);
+                    console.error("[NETSIM FATAL] NetSim termin tarihi gÃ¼ncellenemedi:", err);
                     netSimError = err instanceof Error ? err.message : "NetSim baÄŸlantÄ± hatasÄ±";
                 }
             }
@@ -523,19 +524,30 @@ export async function bulkSendToApproval(productIds: number[]) {
             }
         });
 
-        let successCount = 0;
-        let skippedCount = 0;
+        let successCount = products.length;
+        let skippedCount = productIds.length - successCount;
 
-        for (const product of products) {
-            await prisma.product.update({
-                where: { id: product.id },
-                data: { status: "PENDING" }
+        if (successCount > 0) {
+            await prisma.$transaction(async (tx) => {
+                // Toplu status güncellemesi (tek sorgu)
+                await tx.product.updateMany({
+                    where: { id: { in: products.map(p => p.id) } },
+                    data: { status: "PENDING" }
+                });
+
+                // Toplu log yazımı (tek sorgu)
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_SEND_TO_APPROVAL",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Ürün toplu onaya gönderildi`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
             });
-            await createAuditLog("BULK_SEND_TO_APPROVAL", "Product", product.systemCode, `Ürün toplu onaya gönderildi`, userId);
-            successCount++;
         }
-
-        skippedCount = productIds.length - successCount;
 
         revalidatePath("/dashboard/planning");
         revalidatePath("/dashboard/admin/approvals");
@@ -552,12 +564,17 @@ export async function bulkSendToApproval(productIds: number[]) {
 }
 
 // Fix logProduction to remove shelf column usage
-export async function logProduction(barcode: string, quantity: number, shelf: string) {
+export async function logProduction(barcode: string, quantity: number, shelf: string, lastUpdatedAt?: Date) {
     const session = await auth();
     if (!session) return { error: "Yetkisiz işlem" };
 
     const product = await prisma.product.findUnique({ where: { barcode }, include: { inventory: true } });
     if (!product) return { error: "Ürün bulunamadı" };
+
+    // @ts-ignore
+    if (lastUpdatedAt && product.updatedAt && new Date(product.updatedAt).getTime() > new Date(lastUpdatedAt).getTime()) {
+        return { error: "OCC_CONFLICT", message: "Bu ürün başka bir kullanıcı tarafından az önce güncellendi. Lütfen sayfayı yenileyin." };
+    }
 
     const cleanShelf = shelf.trim().toUpperCase();
     if (!cleanShelf) {
@@ -795,7 +812,15 @@ export async function deleteProduct(id: number) {
         const product = await prisma.product.findUnique({ where: { id } });
         if (!product) return { error: "Ürün bulunamadı" };
 
-        await prisma.product.delete({ where: { id } });
+        await prisma.$transaction([
+            prisma.productionLog.deleteMany({ where: { productId: id } }),
+            prisma.inventory.deleteMany({ where: { productId: id } }),
+            prisma.bomItem.deleteMany({ where: { productId: id } }),
+            prisma.shipmentItem.deleteMany({ where: { productId: id } }),
+            prisma.productComponent.deleteMany({ where: { productId: id } }),
+            prisma.semiFinishedProduction.deleteMany({ where: { productId: id } }),
+            prisma.product.delete({ where: { id } })
+        ]);
 
         await createAuditLog(
             "DELETE",
@@ -807,6 +832,7 @@ export async function deleteProduct(id: number) {
 
         revalidatePath("/dashboard/planning");
         revalidatePath("/dashboard/warehouse");
+        revalidatePath("/dashboard/production-calendar");
         return { success: true };
     } catch (e) {
         console.error("Delete Product Error:", e);
@@ -827,16 +853,27 @@ export async function bulkApprove(productIds: number[]) {
             where: { id: { in: productIds }, status: "PENDING" }
         });
 
-        for (const product of products) {
-            // Admin toplu onay -> Pazarlamaya gider (barkod henüz atanmaz)
-            await prisma.product.update({
-                where: { id: product.id },
-                data: {
-                    status: "MARKETING_REVIEW",
-                    rejectionReason: null
-                }
+        if (products.length > 0) {
+            await prisma.$transaction(async (tx) => {
+                await tx.product.updateMany({
+                    where: { id: { in: products.map(p => p.id) } },
+                    data: {
+                        status: "MARKETING_REVIEW",
+                        rejectionReason: null
+                    }
+                });
+
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_ADMIN_APPROVE",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Admin approved in bulk. Sent to Marketing.`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
             });
-            await createAuditLog("BULK_ADMIN_APPROVE", "Product", product.systemCode, `Admin approved in bulk. Sent to Marketing.`, userId);
         }
 
         revalidatePath("/dashboard/admin/approvals");
@@ -865,15 +902,27 @@ export async function bulkReject(productIds: number[], reason: string) {
             where: { id: { in: productIds }, status: "PENDING" }
         });
 
-        for (const product of products) {
-            await prisma.product.update({
-                where: { id: product.id },
-                data: {
-                    status: "REJECTED",
-                    rejectionReason: reason
-                }
+        if (products.length > 0) {
+            await prisma.$transaction(async (tx) => {
+                await tx.product.updateMany({
+                    where: { id: { in: products.map(p => p.id) } },
+                    data: {
+                        status: "REJECTED",
+                        rejectionReason: reason
+                    }
+                });
+
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_REJECT",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Product rejected in bulk. Reason: ${reason}`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
             });
-            await createAuditLog("BULK_REJECT", "Product", product.systemCode, `Product rejected in bulk. Reason: ${reason}`, userId);
         }
 
         revalidatePath("/dashboard/admin/approvals");
@@ -897,9 +946,28 @@ export async function bulkDelete(productIds: number[]) {
             where: { id: { in: productIds } }
         });
 
-        for (const product of products) {
-            await prisma.product.delete({ where: { id: product.id } });
-            await createAuditLog("BULK_DELETE", "Product", product.systemCode, `Product deleted in bulk operation`, userId);
+        if (products.length > 0) {
+            await prisma.$transaction(async (tx) => {
+                await tx.productionLog.deleteMany({ where: { productId: { in: productIds } } });
+                await tx.inventory.deleteMany({ where: { productId: { in: productIds } } });
+                await tx.bomItem.deleteMany({ where: { productId: { in: productIds } } });
+                await tx.shipmentItem.deleteMany({ where: { productId: { in: productIds } } });
+                await tx.productComponent.deleteMany({ where: { productId: { in: productIds } } });
+                await tx.semiFinishedProduction.deleteMany({ where: { productId: { in: productIds } } });
+
+                await tx.product.deleteMany({ where: { id: { in: productIds } } });
+
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_DELETE",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Product deleted in bulk operation`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
+            });
         }
 
         revalidatePath("/dashboard/planning");
@@ -1105,9 +1173,9 @@ export async function updateProductStatus(productId: number, status: string) {
     if (!session) return { error: "Yetkisiz iÅŸlem" };
 
     const role = (session.user as any).role;
-    // ADMIN, PLANNER (view only), ENGINEER can update status
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
-        return { error: "Bu işlem için yetkiniz yok. Sadece Admin veya Üretim Mühendisi güncelleyebilir." };
+    // ADMIN, PLANNER (view only), KALITE can update status
+    if (!["ADMIN", "KALITE"].includes(role)) {
+        return { error: "Bu işlem için yetkiniz yok. Sadece Admin veya Kalite güncelleyebilir." };
     }
 
     const userId = parseInt((session.user as any).id);
@@ -1169,8 +1237,8 @@ export async function updateProductSubStatus(productId: number, subStatus: strin
     if (!session) return { error: "Yetkisiz işlem" };
 
     const role = (session.user as any).role;
-    // ADMIN and ENGINEER can update sub-status
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
+    // ADMIN and KALITE can update sub-status
+    if (!["ADMIN", "KALITE"].includes(role)) {
         return { error: "Bu işlem için yetkiniz yok. Sadece Admin veya Üretim Mühendisi güncelleyebilir." };
     }
 
@@ -1216,7 +1284,7 @@ export async function bulkUpdateProductStatus(productIds: number[], status: stri
     if (!session) return { error: "Yetkisiz iÅŸlem" };
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "KALITE"].includes(role)) {
         return { error: "Bu iÅŸlem iÃ§in yetkiniz yok" };
     }
 
@@ -1227,21 +1295,27 @@ export async function bulkUpdateProductStatus(productIds: number[], status: stri
             where: { id: { in: productIds } }
         });
 
-        for (const product of products) {
-            await prisma.product.update({
-                where: { id: product.id },
-                data: {
-                    status,
-                    subStatus: null
-                }
+        if (products.length > 0) {
+            await prisma.$transaction(async (tx) => {
+                await tx.product.updateMany({
+                    where: { id: { in: products.map(p => p.id) } },
+                    data: {
+                        status: status as any,
+                        subStatus: null
+                    }
+                });
+
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_UPDATE_STATUS",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Toplu durum gÃ¼ncelleme: ${status}`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
             });
-            await createAuditLog(
-                "BULK_UPDATE_STATUS",
-                "Product",
-                product.systemCode,
-                `Toplu durum gÃ¼ncelleme: ${status}`,
-                userId
-            );
         }
 
         revalidatePath("/dashboard/production-planning");
@@ -1259,7 +1333,7 @@ export async function bulkUpdateProductSubStatus(productIds: number[], subStatus
     if (!session) return { error: "Yetkisiz iÅŸlem" };
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "KALITE"].includes(role)) {
         return { error: "Bu iÅŸlem iÃ§in yetkiniz yok" };
     }
 
@@ -1270,18 +1344,24 @@ export async function bulkUpdateProductSubStatus(productIds: number[], subStatus
             where: { id: { in: productIds } }
         });
 
-        for (const product of products) {
-            await prisma.product.update({
-                where: { id: product.id },
-                data: { subStatus }
+        if (products.length > 0) {
+            await prisma.$transaction(async (tx) => {
+                await tx.product.updateMany({
+                    where: { id: { in: products.map(p => p.id) } },
+                    data: { subStatus }
+                });
+
+                await tx.auditLog.createMany({
+                    data: products.map(product => ({
+                        action: "BULK_UPDATE_SUB_STATUS",
+                        entity: "Product",
+                        entityId: product.systemCode,
+                        details: `Toplu alt durum gÃ¼ncelleme: ${subStatus}`,
+                        userId: userId,
+                        createdAt: new Date()
+                    }))
+                });
             });
-            await createAuditLog(
-                "BULK_UPDATE_SUB_STATUS",
-                "Product",
-                product.systemCode,
-                `Toplu alt durum gÃ¼ncelleme: ${subStatus}`,
-                userId
-            );
         }
 
         revalidatePath("/dashboard/production-planning");
@@ -1299,7 +1379,7 @@ export async function updateEngineerNote(productId: number, note: string) {
     if (!session) return { error: "Yetkisiz iÅŸlem" };
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "KALITE"].includes(role)) {
         return { error: "Bu iÅŸlem iÃ§in yetkiniz yok" };
     }
 
@@ -1339,13 +1419,14 @@ export async function updateEngineerNote(productId: number, note: string) {
 export async function updateProductionStageQuantity(
     productId: number,
     stage: 'cut' | 'upholstery' | 'assembly' | 'quality' | 'packaged',
-    quantity: number
+    quantity: number,
+    lastUpdatedAt?: Date
 ) {
     const session = await auth();
     if (!session) return { error: "Yetkisiz iÅŸlem" };
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "KALITE"].includes(role)) {
         return { error: "Bu iÅŸlem iÃ§in yetkiniz yok" };
     }
 
@@ -1359,6 +1440,11 @@ export async function updateProductionStageQuantity(
 
         if (!product) {
             return { error: "ÃœrÃ¼n bulunamadÄ±" };
+        }
+
+        // @ts-ignore
+        if (lastUpdatedAt && product.updatedAt && new Date(product.updatedAt).getTime() > new Date(lastUpdatedAt).getTime()) {
+            return { error: "OCC_CONFLICT", message: "Bu ürün başka bir kullanıcı tarafından az önce güncellendi. Lütfen sayfayı yenileyin." };
         }
 
         // Miktar kontrolu
@@ -1390,15 +1476,12 @@ export async function updateProductionStageQuantity(
             [stageFieldMap[stage]]: quantity
         };
 
-        // Eger paketleme ise ve miktar uretilen miktara esitse, durumu guncelle
+        // Eger paketleme ise ve miktar uretilen miktara esitse, subStatus guncelle
         if (stage === 'packaged') {
-            // Paketlenen miktar uretilen miktara esit veya buyukse COMPLETED yap
             if (quantity >= product.produced && product.produced > 0) {
                 updateData.subStatus = 'Paketlendi';
-                // Eger tum uretim tamamlandiysa COMPLETED yap
-                if (product.produced >= product.quantity) {
-                    updateData.status = 'COMPLETED';
-                }
+                // NOT: Status burada COMPLETED yapılmıyor
+                // Ürün sadece depoya alındığında (transferToWarehouse) COMPLETED olmalı
             }
         }
 
@@ -1441,7 +1524,7 @@ export async function updateProductStages(
     if (!session || !session.user) return { error: "Yetkisiz işlem" };
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "PLANNER", "MARKETING", "MARKETER", "WORKER", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "MARKETING", "MARKETER", "WORKER", "KALITE"].includes(role)) {
         return { error: "Yetkisiz işlem" };
     }
     const userId = parseInt((session.user as any).id);
@@ -1450,13 +1533,17 @@ export async function updateProductStages(
         const product = await prisma.product.findUnique({ where: { id } });
         if (!product) return { error: "Ürün bulunamadı" };
 
-        const f = stages.foam ?? product.foamQty ?? 0;
-        const u = stages.upholstery ?? product.upholsteryQty;
-        const a = stages.assembly ?? product.assemblyQty;
-        const p = stages.packaged ?? product.packagedQty;
+        let f = stages.foam ?? product.foamQty ?? 0;
+        let u = stages.upholstery ?? product.upholsteryQty ?? 0;
+        let a = stages.assembly ?? product.assemblyQty ?? 0;
+        let p = stages.packaged ?? product.packagedQty ?? 0;
         const st = stages.stored ?? product.storedQty ?? 0;
-        const s = stages.shipped ?? product.shippedQty;
+        const s = stages.shipped ?? product.shippedQty ?? 0;
         const note = stages.engineerNote ?? product.engineerNote;
+
+        // NOT: Otomatik aşama geçişi devre dışı bırakıldı.
+        // Kullanıcının girdiği aşama verileri doğrudan kaydedilir.
+        // Hiçbir aşama otomatik olarak diğerine taşınmaz.
 
         const totalInStages = f + u + a + p + st + s;
         if (totalInStages > product.quantity) {
@@ -1464,29 +1551,70 @@ export async function updateProductStages(
         }
 
         let newStatus = product.status;
-        if (s === product.quantity) {
+        if (s >= product.quantity) {
             newStatus = "SHIPPED";
-        } else if (st + s === product.quantity) {
-            // If everything is stored or shipped (implied finished), user wanted "Bitti/Depoda" logic.
-            // If completely stored, it is effectively COMPLETED from production view.
+        } else if (st + s >= product.quantity) {
+            // Tamamen depoya alındı veya sevk edildi
             newStatus = "COMPLETED";
-        } else if (p + st + s === product.quantity) {
-            newStatus = "COMPLETED"; // Packaged is also "finished" production
         } else if (totalInStages > 0) {
+            // Herhangi bir aşamada iş var = üretimde
             newStatus = "IN_PRODUCTION";
         }
 
-        await prisma.product.update({
-            where: { id },
-            data: {
-                foamQty: f,
-                upholsteryQty: u,
-                assemblyQty: a,
-                packagedQty: p,
-                storedQty: st,
-                shippedQty: s,
-                engineerNote: note,
-                status: newStatus
+        const newlyStoredQty = st - (product.storedQty || 0);
+
+        await prisma.$transaction(async (tx) => {
+            await tx.product.update({
+                where: { id },
+                data: {
+                    foamQty: f,
+                    upholsteryQty: u,
+                    assemblyQty: a,
+                    packagedQty: p,
+                    storedQty: st,
+                    shippedQty: s,
+                    engineerNote: note,
+                    status: newStatus,
+                    ...(newlyStoredQty > 0 && !(product as any).storedDate ? { storedDate: new Date() } : {})
+                }
+            });
+
+            // Aynı otomasyon mantığı: Depoya giriş arttıysa yarı mamüldeki değerleri de güncelle
+            if (newlyStoredQty > 0) {
+                const sfs = await tx.semiFinishedProduction.findMany({
+                    where: {
+                        productId: id,
+                        status: { in: ['PENDING', 'IN_PROGRESS'] }
+                    }
+                });
+
+                for (const sf of sfs) {
+                    const newProducedQty = Math.max(sf.producedQty, st);
+
+                    if (newProducedQty > sf.producedQty) {
+                        let sfStatus = sf.status;
+                        let newCompletedAt = (sf as any).completedAt;
+
+                        if (newProducedQty >= sf.targetQty) {
+                            sfStatus = 'COMPLETED';
+                            if (!newCompletedAt) {
+                                newCompletedAt = new Date();
+                            }
+                        } else if (newProducedQty > 0 && sfStatus === 'PENDING') {
+                            sfStatus = 'IN_PROGRESS';
+                        }
+
+                        await tx.semiFinishedProduction.update({
+                            where: { id: sf.id },
+                            data: {
+                                producedQty: newProducedQty,
+                                status: sfStatus,
+                                ...(newCompletedAt ? { completedAt: newCompletedAt } : {}),
+                                updatedAt: new Date()
+                            }
+                        });
+                    }
+                }
             }
         });
 
@@ -1501,6 +1629,7 @@ export async function updateProductStages(
         revalidatePath("/dashboard/planning");
         revalidatePath("/dashboard/production");
         revalidatePath("/dashboard/warehouse");
+        revalidatePath("/dashboard/semi-finished-production");
 
         return { success: true };
 
@@ -1547,6 +1676,7 @@ export async function transferToWarehouse(data: {
     productId: number;
     quantity: number;
     shelf?: string;
+    lastUpdatedAt?: Date;
 }) {
     const session = await auth();
     if (!session) return { error: "Yetkisiz işlem" };
@@ -1567,6 +1697,11 @@ export async function transferToWarehouse(data: {
             return { error: "Ürün bulunamadı" };
         }
 
+        // @ts-ignore
+        if (data.lastUpdatedAt && product.updatedAt && new Date(product.updatedAt).getTime() > new Date(data.lastUpdatedAt).getTime()) {
+            return { error: "OCC_CONFLICT", message: "Bu ürün başka bir kullanıcı tarafından az önce güncellendi. Lütfen listeyi yenileyin." };
+        }
+
         const packagedQty = product.packagedQty || 0;
 
         if (data.quantity <= 0) {
@@ -1580,14 +1715,49 @@ export async function transferToWarehouse(data: {
         // Transaction ile packagedQty azalt, storedQty artır
         await prisma.$transaction(async (tx) => {
             // Ürünü güncelle
-            await tx.product.update({
+            const updatedProduct = await tx.product.update({
                 where: { id: data.productId },
                 data: {
                     packagedQty: { decrement: data.quantity },
                     storedQty: { increment: data.quantity },
-                    status: "COMPLETED" // Depoya girince completed olur
+                    status: "COMPLETED", // Depoya girince completed olur
+                    storedDate: product.storedDate || new Date() // Depoya ilk giriş tarihi
                 }
             });
+
+            // Yarı Mamül otomasyonu: Yeni depoya giren toplam miktar üzerinden üretimi güncelle
+            const activeSemiFinished = await tx.semiFinishedProduction.findMany({
+                where: {
+                    productId: data.productId,
+                    status: { not: "COMPLETED" }
+                }
+            });
+
+            for (const sf of activeSemiFinished) {
+                const newProducedQty = Math.max(sf.producedQty, updatedProduct.storedQty || 0);
+
+                if (newProducedQty > sf.producedQty) {
+                    let newStatus = sf.status;
+                    let newCompletedAt = (sf as any).completedAt;
+
+                    if (newProducedQty >= sf.targetQty) {
+                        newStatus = "COMPLETED";
+                        newCompletedAt = new Date();
+                    } else if (newProducedQty > 0 && newStatus === 'PENDING') {
+                        newStatus = "IN_PROGRESS";
+                    }
+
+                    await tx.semiFinishedProduction.update({
+                        where: { id: sf.id },
+                        data: {
+                            producedQty: newProducedQty,
+                            status: newStatus,
+                            ...(newCompletedAt ? { completedAt: newCompletedAt } : {}),
+                            updatedAt: new Date()
+                        }
+                    });
+                }
+            }
 
             // Eğer raf belirtildiyse inventory'ye ekle
             if (data.shelf) {
@@ -1608,6 +1778,30 @@ export async function transferToWarehouse(data: {
                         data: {
                             productId: data.productId,
                             shelf: data.shelf,
+                            quantity: data.quantity
+                        }
+                    });
+                }
+            } else {
+                // Raf belirtilmemişse genel stoğu güncelle/ekle (veya rafı null olanı bul)
+                const defaultShelfName = "Genel Depo";
+                const existingInventory = await tx.inventory.findFirst({
+                    where: {
+                        productId: data.productId,
+                        shelf: defaultShelfName
+                    }
+                });
+
+                if (existingInventory) {
+                    await tx.inventory.update({
+                        where: { id: existingInventory.id },
+                        data: { quantity: { increment: data.quantity } }
+                    });
+                } else {
+                    await tx.inventory.create({
+                        data: {
+                            productId: data.productId,
+                            shelf: defaultShelfName,
                             quantity: data.quantity
                         }
                     });
@@ -1636,11 +1830,55 @@ export async function transferToWarehouse(data: {
         revalidatePath("/dashboard/production");
         revalidatePath("/dashboard/production-planning");
         revalidatePath("/dashboard/warehouse");
+        revalidatePath("/dashboard/semi-finished-production");
 
         return { success: true };
     } catch (e) {
         console.error("Transfer to warehouse error:", e);
         return { error: "Depoya giriş sırasında hata oluştu" };
+    }
+}
+
+// Raf (inventory shelf) bilgisini güncelle / yeni raf ekle - WAREHOUSE ve ADMIN kullanabilir
+// id varsa güncelleme, yoksa yeni raf oluşturma yapar
+export async function updateProductShelf(
+    productId: number,
+    shelves: { id?: number; shelf: string; quantity: number }[]
+) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
+
+    const role = (session.user as any).role;
+    if (!["ADMIN", "WAREHOUSE"].includes(role)) {
+        return { error: "Bu işlem için yetkiniz yok" };
+    }
+
+    const invalid = shelves.find(s => !s.shelf.trim() || s.quantity <= 0);
+    if (invalid) return { error: "Raf adı boş olamaz ve adet 0'dan büyük olmalı" };
+
+    try {
+        await prisma.$transaction(
+            shelves.map(s =>
+                s.id
+                    ? prisma.inventory.update({
+                        where: { id: s.id },
+                        data: { shelf: s.shelf.trim() }
+                    })
+                    : prisma.inventory.create({
+                        data: {
+                            productId,
+                            shelf: s.shelf.trim(),
+                            quantity: s.quantity
+                        }
+                    })
+            )
+        );
+
+        revalidatePath("/dashboard/warehouse");
+        return { success: true };
+    } catch (e) {
+        console.error("Update shelf error:", e);
+        return { error: "Raf bilgisi güncellenirken hata oluştu" };
     }
 }
 
@@ -1774,7 +2012,8 @@ export async function updateProductFields(
         packagedQty?: number;
         storedQty?: number;
         shippedQty?: number;
-    }
+    },
+    lastUpdatedAt?: Date
 ) {
     const session = await auth();
     if (!session || (session.user as any).role !== "ADMIN") {
@@ -1790,6 +2029,11 @@ export async function updateProductFields(
 
         if (!product) {
             return { error: "Ürün bulunamadı" };
+        }
+
+        // @ts-ignore
+        if (lastUpdatedAt && product.updatedAt && new Date(product.updatedAt).getTime() > new Date(lastUpdatedAt).getTime()) {
+            return { error: "OCC_CONFLICT", message: "Bu ürün başka bir kullanıcı tarafından az önce güncellendi. Lütfen sayfayı yenileyin." };
         }
 
         // Sadece gönderilen alanları güncelle (undefined olanları atla)
@@ -1825,12 +2069,78 @@ export async function updateProductFields(
         if (updates.upholsteryQty !== undefined) { data.upholsteryQty = updates.upholsteryQty; changes.push(`Döşeme: ${updates.upholsteryQty}`); }
         if (updates.assemblyQty !== undefined) { data.assemblyQty = updates.assemblyQty; changes.push(`Montaj: ${updates.assemblyQty}`); }
         if (updates.packagedQty !== undefined) { data.packagedQty = updates.packagedQty; changes.push(`Paket: ${updates.packagedQty}`); }
-        if (updates.storedQty !== undefined) { data.storedQty = updates.storedQty; changes.push(`Depo: ${updates.storedQty}`); }
+        if (updates.storedQty !== undefined) {
+            data.storedQty = updates.storedQty;
+            changes.push(`Depo: ${updates.storedQty}`);
+        }
         if (updates.shippedQty !== undefined) { data.shippedQty = updates.shippedQty; changes.push(`Sevk: ${updates.shippedQty}`); }
 
-        await prisma.product.update({
-            where: { id: productId },
-            data
+
+        const currentStoredQty = product.storedQty || 0;
+        const newStoredQty = data.storedQty !== undefined ? data.storedQty : currentStoredQty;
+        const newlyStoredQty = newStoredQty - currentStoredQty;
+
+        if (newlyStoredQty > 0 && !(product as any).storedDate) {
+            data.storedDate = new Date();
+        }
+
+        // storedQty artışında packagedQty otomatik düş:
+        // Eğer packagedQty bu çağrıda bağımsız değiştirilmediyse (UI'dan eski değer geliyorsa),
+        // storedQty'deki artış kadar packagedQty'yi azalt.
+        if (newlyStoredQty > 0 && updates.storedQty !== undefined) {
+            const currentPackagedQty = product.packagedQty || 0;
+            const submittedPackaged = updates.packagedQty;
+            if (submittedPackaged === undefined || submittedPackaged === currentPackagedQty) {
+                data.packagedQty = Math.max(0, currentPackagedQty - newlyStoredQty);
+                // Değişiklik kaydını güncelle
+                const pkgIdx = changes.findIndex(c => c.startsWith('Paket:'));
+                if (pkgIdx !== -1) changes.splice(pkgIdx, 1);
+                changes.push(`Paket (oto): ${data.packagedQty}`);
+            }
+        }
+
+        await prisma.$transaction(async (tx) => {
+            await tx.product.update({
+                where: { id: productId },
+                data
+            });
+
+            if (newlyStoredQty > 0) {
+                const sfs = await tx.semiFinishedProduction.findMany({
+                    where: {
+                        productId: productId,
+                        status: { in: ['PENDING', 'IN_PROGRESS'] }
+                    }
+                });
+
+                for (const sf of sfs) {
+                    const newProducedQty = Math.max(sf.producedQty, newStoredQty);
+
+                    if (newProducedQty > sf.producedQty) {
+                        let sfStatus = sf.status;
+                        let newCompletedAt = (sf as any).completedAt;
+
+                        if (newProducedQty >= sf.targetQty) {
+                            sfStatus = 'COMPLETED';
+                            if (!newCompletedAt) {
+                                newCompletedAt = new Date();
+                            }
+                        } else if (newProducedQty > 0 && sfStatus === 'PENDING') {
+                            sfStatus = 'IN_PROGRESS';
+                        }
+
+                        await tx.semiFinishedProduction.update({
+                            where: { id: sf.id },
+                            data: {
+                                producedQty: newProducedQty,
+                                status: sfStatus,
+                                ...(newCompletedAt ? { completedAt: newCompletedAt } : {}),
+                                updatedAt: new Date()
+                            }
+                        });
+                    }
+                }
+            }
         });
 
         await createAuditLog(
@@ -1843,6 +2153,9 @@ export async function updateProductFields(
 
         revalidatePath("/dashboard/production-calendar");
         revalidatePath("/dashboard/production-planning");
+        revalidatePath("/dashboard/production");
+        revalidatePath("/dashboard/warehouse");
+        revalidatePath("/dashboard/semi-finished-production");
 
         return { success: true };
     } catch (e) {

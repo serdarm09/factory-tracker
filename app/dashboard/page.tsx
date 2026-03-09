@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardCharts } from "@/components/dashboard-charts";
 import {
@@ -17,6 +18,13 @@ import {
 
 export default async function DashboardPage() {
     const session = await auth();
+
+    // KALİTE rolü sadece üretim planlama sayfasını görebilir.
+    // Ana ekrana girmeye çalışırsa yönlendir.
+    if ((session?.user as any)?.role === "KALITE") {
+        redirect("/dashboard/production-planning");
+    }
+
     const products = await prisma.product.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
@@ -79,6 +87,9 @@ export default async function DashboardPage() {
         const completedDate = lastLog ? new Date(lastLog.createdAt) : new Date(p.createdAt);
         return completedDate >= weekStart;
     });
+
+    // Sevk edilen ürünler
+    const shippedProducts = products.filter(p => (p.shippedQty || 0) > 0);
 
     // Haftalık üretim verileri (son 7 gün)
     const today = new Date();
@@ -195,7 +206,7 @@ export default async function DashboardPage() {
                     </div>
 
                     {/* İkinci Satır - Ek İstatistikler */}
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Aktif Siparişler</CardTitle>
@@ -217,6 +228,19 @@ export default async function DashboardPage() {
                                 <p className="text-xs text-muted-foreground">Toplam adet</p>
                             </CardContent>
                         </Card>
+
+                        <Link href="/dashboard/shipment">
+                            <Card className="border-teal-200 bg-teal-50 hover:bg-teal-100 transition-colors cursor-pointer">
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Sevk Edilen</CardTitle>
+                                    <Truck className="h-5 w-5 text-teal-600" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold text-teal-700">{shippedProducts.length}</div>
+                                    <p className="text-xs text-teal-600">Toplam sevk</p>
+                                </CardContent>
+                            </Card>
+                        </Link>
 
                         <Card className={overdueProducts.length > 0 ? "border-red-200 bg-red-50" : ""}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

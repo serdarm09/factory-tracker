@@ -40,7 +40,8 @@ export function UserCreateForm() {
                             <optgroup label="Genel Roller">
                                 <option value="VIEWER">VIEWER (İzleyici)</option>
                                 <option value="PLANNER">PLANNER (Planlamacı)</option>
-                                <option value="ENGINEER">ENGINEER (Üretim Mühendisi)</option>
+                                <option value="KALITE">KALİTE (Kalite - Üretim Takibi)</option>
+                                <option value="YARİMAMUL">YARİMAMUL (Tüm Yarı Mamül Görüntüleme)</option>
                                 <option value="MARKETER">MARKETER (Pazarlamacı)</option>
                                 <option value="WAREHOUSE">WAREHOUSE (Depo Sorumlusu)</option>
                                 <option value="WORKER">WORKER (Sevkiyatçı)</option>
@@ -51,6 +52,8 @@ export function UserCreateForm() {
                                 <option value="KONFEKSIYON">KONFEKSIYON (Konfeksiyon Üretim)</option>
                                 <option value="AHSAP_BOYA">AHSAP_BOYA (Ahşap Boya Üretim)</option>
                                 <option value="AHSAP_ISKELET">AHSAP_ISKELET (Ahşap İskelet Üretim)</option>
+                                <option value="PLASTIK">PLASTIK (Plastik Üretim)</option>
+                                <option value="SUNGER_DOKUM">SUNGER_DOKUM (Sünger Döküm Üretim)</option>
                             </optgroup>
                         </select>
                     </div>

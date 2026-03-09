@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -11,7 +11,7 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
-  role      String   // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER, ENGINEER, METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET
+  role      String   // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER, ENGINEER, METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK, SUNGER_DOKUM
   createdProducts Product[] @relation("CreatedProducts")
   createdOrders   Order[]   @relation("CreatedOrders")
   createdAt DateTime @default(now())
@@ -105,6 +105,7 @@ model Product {
   qualityQty      Int      @default(0) // Kalite kontrol gecen adet
   packagedQty     Int      @default(0) // Paketlenen adet
   storedQty       Int      @default(0) // Depoya alinan adet
+  storedDate      DateTime? // Depoya ilk giris tarihi
   shippedQty      Int      @default(0) // Sevk edilen adet
 
   createdById Int?
@@ -114,6 +115,7 @@ model Product {
   barcode     String?  @unique
   
   createdAt   DateTime @default(now())
+  updatedAt   DateTime? @updatedAt
   
   // Relations
   logs        ProductionLog[]
@@ -162,12 +164,13 @@ model Shipment {
 }
 
 model ShipmentItem {
-  id          Int      @id @default(autoincrement())
-  shipment    Shipment @relation(fields: [shipmentId], references: [id])
-  shipmentId  Int
-  product     Product  @relation(fields: [productId], references: [id])
-  productId   Int
-  quantity    Int
+  id           Int      @id @default(autoincrement())
+  shipment     Shipment @relation(fields: [shipmentId], references: [id])
+  shipmentId   Int
+  product      Product  @relation(fields: [productId], references: [id])
+  productId    Int
+  quantity     Int
+  partsShipped String?  // EVET | HAYIR | DAHA_SONRA — "Ayak veya Aksesuar edildi mi?"
 }
 
 // MRP: Raw Materials / Parts
@@ -264,17 +267,31 @@ model SemiFinishedProduction {
   id          Int      @id @default(autoincrement())
   product     Product  @relation(fields: [productId], references: [id])
   productId   Int
-  category    String   // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET
+  category    String   // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK
   targetQty   Int      // Hedef üretim miktarı
   producedQty Int      @default(0) // Üretilen miktar
+  surplusQty  Int      @default(0) // Mal fazlası miktarı
   status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  completedAt DateTime? // Tamamlandığı tarih
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@unique([productId, category])
 }
 
-// Bildirimler (Admin'e gelen bildirimler)
+// Konfeksiyon Mal Fazlası (Manuel girilen fazla üretim kayıtları)
+model KonfeksiyonMalFazlasi {
+  id          Int      @id @default(autoincrement())
+  productName String   // Ürün adı
+  model       String?  // Model
+  company     String?  // Firma
+  quantity    Int      // Adet
+  description String?  // Açıklama
+  master      String?  // Usta / Renk
+  category    String   @default("KONFEKSIYON") // METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK, SUNGER_DOKUM
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
 model Notification {
   id          Int      @id @default(autoincrement())
   type        String   // MARKETING_REJECT, APPROVAL_NEEDED, etc.

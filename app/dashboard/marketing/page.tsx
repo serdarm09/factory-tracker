@@ -23,8 +23,7 @@ export default async function MarketingPage() {
             order: true,
             creator: {
                 select: { username: true }
-            },
-            components: true
+            }
         },
         orderBy: { createdAt: "desc" }
     });
@@ -38,8 +37,7 @@ export default async function MarketingPage() {
             order: true,
             creator: {
                 select: { username: true }
-            },
-            components: true
+            }
         },
         orderBy: { createdAt: "desc" }
     });
@@ -58,8 +56,7 @@ export default async function MarketingPage() {
             order: true,
             creator: {
                 select: { username: true }
-            },
-            components: true
+            }
         },
         orderBy: { createdAt: "desc" }
     });
@@ -74,8 +71,7 @@ export default async function MarketingPage() {
             creator: {
                 select: { username: true }
             },
-            shipmentItems: true,
-            components: true
+            shipmentItems: true
         },
         orderBy: { createdAt: "desc" }
     });
@@ -90,25 +86,32 @@ export default async function MarketingPage() {
         };
     });
 
-    // Sevk edilenler - get shipment items with details
-    const shippedItems = await prisma.shipmentItem.findMany({
+    // Sevk edilenler - TÜM sevk edilen ürünleri getir (shippedQty > 0)
+    const shippedProducts = await prisma.product.findMany({
+        where: {
+            shippedQty: { gt: 0 },
+            NOT: { sku: { startsWith: "MANUAL-" } }
+        },
         include: {
-            shipment: true,
-            product: {
+            order: true,
+            creator: {
+                select: { username: true }
+            },
+            shipmentItems: {
                 include: {
-                    order: true,
-                    creator: {
-                        select: { username: true }
-                    },
-                    components: true
+                    shipment: {
+                        select: {
+                            company: true,
+                            driverName: true,
+                            vehiclePlate: true,
+                            exitDate: true,
+                            status: true
+                        }
+                    }
                 }
             }
         },
-        orderBy: {
-            shipment: {
-                createdAt: "desc"
-            }
-        }
+        orderBy: { createdAt: "desc" }
     });
 
     const newProductCount = marketingReviewProducts.length;
@@ -154,7 +157,7 @@ export default async function MarketingPage() {
                 approvedProducts={approvedProducts}
                 inProductionProducts={inProductionProducts}
                 completedProducts={completedWithShipped}
-                shippedItems={shippedItems}
+                shippedProducts={shippedProducts}
                 userRole={role}
             />
         </div>

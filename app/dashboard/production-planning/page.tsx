@@ -1,24 +1,35 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { unstable_noStore as noStore } from "next/cache";
 import { ProductionPlanningTable } from "@/components/production-planning-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Wrench, Package, Truck, CheckCircle } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProductionPlanningPage() {
+    noStore();
     const session = await auth();
     if (!session) redirect("/login");
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "PLANNER", "ENGINEER"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE"].includes(role)) {
         redirect("/dashboard");
     }
 
-    // Üretimdeki ve tamamlanmış ürünler (Depo Ciro ve sevk bilgileri için COMPLETED da dahil)
+    // Sadece üretime gönderilmiş ürünler (IN_PRODUCTION ve COMPLETED)
+    // APPROVED = henüz üretime gönderilmedi, bu sayfada gözükmez
+    // Manuel eklenen yarı mamül ürünleri (MANUAL-) hariç tut
     const products = await prisma.product.findMany({
         where: {
-            status: { in: ["IN_PRODUCTION", "COMPLETED"] }
+            status: { in: ["IN_PRODUCTION", "COMPLETED"] },
+            NOT: {
+                sku: {
+                    startsWith: "MANUAL-"
+                }
+            }
         },
         include: {
             order: true,
@@ -43,19 +54,30 @@ export default async function ProductionPlanningPage() {
         total: products.length,
         inProduction: products.filter(p => p.status === "IN_PRODUCTION").length,
         completed: products.filter(p => p.status === "COMPLETED").length,
-        approved: products.filter(p => p.status === "APPROVED").length,
     };
 
-    // Urunlere sevk bilgisi ekle
+    // Ürünlere sevk ve stok bilgisi ekle
+    // Depoya alınmış veya sevk edilmiş ise (toplam adet karşılanmışsa) listeden çıkar
     const productsWithShipment = products.map(p => {
-        const totalShipped = p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0);
-        const totalInInventory = p.inventory.reduce((sum, inv) => sum + inv.quantity, 0);
+        const totalShipped = Math.max(
+            p.shippedQty || 0,
+            p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0)
+        );
+        const totalInInventory = Math.max(
+            p.storedQty || 0,
+            p.inventory.reduce((sum, inv) => sum + inv.quantity, 0)
+        );
         return {
             ...p,
             shipped: totalShipped,
             inStock: totalInInventory,
-            remaining: p.quantity - p.produced
+            remaining: p.quantity - (p.produced || 0)
         };
+    }).filter(p => {
+        // Tüm adeti depoya alınmış + sevk edilmişse gizle
+        if ((p.inStock + p.shipped) >= p.quantity) return false;
+        if (p.status === 'SHIPPED') return false;
+        return true;
     });
 
     return (
@@ -69,65 +91,6 @@ export default async function ProductionPlanningPage() {
                         ? "Uretim sureclerini goruntuleyebilirsiniz (salt okunur)"
                         : "Uretim sureclerini takip edin ve durum guncellemesi yapin"}
                 </p>
-            </div>
-
-            {/* Istatistik Kartlari */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card>
-                    <CardContent className="pt-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-blue-100 rounded-lg">
-                                <Package className="h-5 w-5 text-blue-600" />
-                            </div>
-                            <div>
-                                <p className="text-2xl font-bold">{stats.total}</p>
-                                <p className="text-xs text-muted-foreground">Toplam Urun</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardContent className="pt-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-yellow-100 rounded-lg">
-                                <Wrench className="h-5 w-5 text-yellow-600" />
-                            </div>
-                            <div>
-                                <p className="text-2xl font-bold">{stats.inProduction}</p>
-                                <p className="text-xs text-muted-foreground">Uretimde</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardContent className="pt-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-green-100 rounded-lg">
-                                <CheckCircle className="h-5 w-5 text-green-600" />
-                            </div>
-                            <div>
-                                <p className="text-2xl font-bold">{stats.completed}</p>
-                                <p className="text-xs text-muted-foreground">Tamamlandi</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardContent className="pt-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 rounded-lg">
-                                <Truck className="h-5 w-5 text-purple-600" />
-                            </div>
-                            <div>
-                                <p className="text-2xl font-bold">{stats.approved}</p>
-                                <p className="text-xs text-muted-foreground">Sevk Bekliyor</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
             </div>
 
             {/* Ana Tablo */}

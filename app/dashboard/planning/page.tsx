@@ -32,8 +32,7 @@ export default async function PlanningPage() {
         include: {
             products: {
                 include: {
-                    order: true, // Product içinden order'a erişebilmek için
-                    catalogProduct: true // Katalog ürünü bilgisi
+                    order: true // Product içinden order'a erişebilmek için
                 }
             },
             marketingBy: true
@@ -48,12 +47,16 @@ export default async function PlanningPage() {
     const legacyProducts = await prisma.product.findMany({
         where: {
             orderId: null,
-            status: { not: 'TEMPLATE' }  // Template kayıtları hariç tut
+            status: { not: 'TEMPLATE' },  // Template kayıtları hariç tut
+            NOT: {
+                sku: {
+                    startsWith: "MANUAL-"  // Manuel yarı mamül ürünleri hariç tut
+                }
+            }
         },
         orderBy: { createdAt: 'desc' },
         include: {
-            order: true,
-            catalogProduct: true // Katalog ürünü bilgisi
+            order: true
         }
     });
 

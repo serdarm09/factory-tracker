@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Package, Calendar, FileText, Building2 } from "lucide-react";
 
+
+
 interface SemiFinishedProductDetailDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -121,31 +123,37 @@ export function SemiFinishedProductDetailDialog({
                         )}
 
                         {/* Sipariş Notları (NetSim) */}
-                        {(item.product.aciklama1 || item.product.aciklama2 || item.product.aciklama3 || item.product.aciklama4) && (
+                        {(item.product.aciklama1 || item.product.aciklama2 || item.product.aciklama3 || item.product.aciklama4 || item.product.dstAdi) && (
                             <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                                 <h3 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
                                     <FileText className="h-5 w-5 text-amber-600" />
-                                    Sipariş Notları
+                                    📋 NetSim Açıklamaları
                                 </h3>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-sm">
+                                    {item.product.dstAdi && (
+                                        <div className="bg-white/60 p-2 rounded border border-amber-100">
+                                            <span className="font-bold text-amber-900 block mb-0.5 text-xs">DST (Değişken Stok):</span>
+                                            <span className="font-medium">{item.product.dstAdi}</span>
+                                        </div>
+                                    )}
                                     {item.product.aciklama1 && (
-                                        <div className="bg-white p-3 rounded border border-amber-100">
-                                            <span className="font-medium text-amber-700">1:</span> {item.product.aciklama1}
+                                        <div className="bg-white/60 p-2 rounded border border-amber-100">
+                                            <span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 1:</span> <span className="font-medium">{item.product.aciklama1}</span>
                                         </div>
                                     )}
                                     {item.product.aciklama2 && (
-                                        <div className="bg-white p-3 rounded border border-amber-100">
-                                            <span className="font-medium text-amber-700">2:</span> {item.product.aciklama2}
+                                        <div className="bg-white/60 p-2 rounded border border-amber-100">
+                                            <span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 2:</span> <span className="font-medium">{item.product.aciklama2}</span>
                                         </div>
                                     )}
                                     {item.product.aciklama3 && (
-                                        <div className="bg-white p-3 rounded border border-amber-100">
-                                            <span className="font-medium text-amber-700">3:</span> {item.product.aciklama3}
+                                        <div className="bg-white/60 p-2 rounded border border-amber-100">
+                                            <span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 3:</span> <span className="font-medium">{item.product.aciklama3}</span>
                                         </div>
                                     )}
                                     {item.product.aciklama4 && (
-                                        <div className="bg-white p-3 rounded border border-amber-100">
-                                            <span className="font-medium text-amber-700">4:</span> {item.product.aciklama4}
+                                        <div className="bg-white/60 p-2 rounded border border-amber-100">
+                                            <span className="font-bold text-amber-900 block mb-0.5 text-xs">Açıklama 4:</span> <span className="font-medium">{item.product.aciklama4}</span>
                                         </div>
                                     )}
                                 </div>
