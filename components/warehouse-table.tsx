@@ -307,9 +307,9 @@ function EditShelfDialog({ product }: { product: Product }) {
 }
 
 const PARTS_SHIPPED_OPTIONS = [
-    { value: "EVET",        label: "Ayak veya Aksesuar sevk edildi",    color: "bg-green-50 border-green-400 text-green-800"  },
-    { value: "HAYIR",       label: "Ayak veya Aksesuar sevk edilmedi",  color: "bg-red-50 border-red-400 text-red-800"        },
-    { value: "DAHA_SONRA",  label: "Ayak veya Aksesuar sevk edilecek",  color: "bg-amber-50 border-amber-400 text-amber-800"  },
+    { value: "EVET", label: "Ayak veya Aksesuar sevk edildi", color: "bg-green-50 border-green-400 text-green-800" },
+    { value: "HAYIR", label: "Ayak veya Aksesuar sevk edilmedi", color: "bg-red-50 border-red-400 text-red-800" },
+    { value: "DAHA_SONRA", label: "Ayak veya Aksesuar sevk edilecek", color: "bg-amber-50 border-amber-400 text-amber-800" },
 ];
 
 // Ship Product Dialog - for warehouse users to ship products
@@ -677,7 +677,10 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
             (p.inventory?.some(i => i.shelf.toLowerCase().includes(term))) ||
             dateString.includes(term);
 
-        const matchesStatus = statusFilter === "ALL" ? true : p.status === statusFilter;
+        const matchesStatus = statusFilter === "ALL" ? true :
+            statusFilter === "TAMAM" ? (p.storedQty || 0) >= p.quantity :
+                statusFilter === "EKSIK" ? (p.storedQty || 0) < p.quantity :
+                    p.status === statusFilter;
 
         let matchesDateRequest = true;
         if (dateRange?.from) {
@@ -756,8 +759,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                     className="h-10 w-[150px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
                 >
                     <option value="ALL">Tümü</option>
-                    <option value="APPROVED">Onaylananlar</option>
-                    <option value="COMPLETED">Tamamlananlar</option>
+                    <option value="TAMAM">Tamamlananlar</option>
+                    <option value="EKSIK">Eksikler</option>
                 </select>
                 <div className="relative">
                     <DateRangeFilter date={dateRange} setDate={handleDateRangeChange} />
@@ -881,11 +884,11 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                             productId={p.id}
                                             productName={p.name}
                                             trigger={
-                                                <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${p.produced >= p.quantity
+                                                <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${(p.storedQty || 0) >= p.quantity
                                                     ? 'bg-blue-100 text-blue-700 border border-blue-200'
                                                     : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                                                     }`}>
-                                                    {p.produced >= p.quantity ? 'TAMAM' : 'EKSİK'}
+                                                    {(p.storedQty || 0) >= p.quantity ? 'TAMAM' : 'EKSİK'}
                                                 </span>
                                             }
                                         />

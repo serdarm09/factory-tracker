@@ -5,6 +5,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardCharts } from "@/components/dashboard-charts";
+import { WeeklyTrendChart } from "@/components/weekly-trend-chart";
 import {
     Package,
     CheckCircle2,
@@ -127,12 +128,200 @@ export default async function DashboardPage() {
         üretim: value
     }));
 
-    // Durum dağılımı için pasta grafik verisi
+    // Durum dağılımı için pasta grafik verisi (Özet PieChart)
+    let onaylananCount = 0;
+    let uretimdeCount = 0;
+    let depoCount = 0;
+    let sevkCount = 0;
+
+    activeProducts.forEach(p => {
+        if (p.status !== 'CANCELLED' && p.status !== 'REJECTED') {
+            const shipped = p.shippedQty || 0;
+            const stored = p.storedQty || 0;
+            const depoNet = stored - shipped;
+            const inProdNet = (p.produced || 0) - stored;
+
+            if (shipped > 0) sevkCount++;
+            if (depoNet > 0) depoCount++;
+            if (p.status === 'IN_PRODUCTION' || inProdNet > 0) uretimdeCount++;
+            if (p.status === 'APPROVED' && (p.produced || 0) === 0) onaylananCount++;
+        }
+    });
+
     const statusData = [
-        { name: 'Bekleyen', value: pendingProducts.length, color: '#f59e0b' },
-        { name: 'Üretimde', value: inProductionProducts.length, color: '#3b82f6' },
-        { name: 'Tamamlanan', value: completedProducts.length, color: '#22c55e' },
+        { name: 'Depodaki', value: depoCount, color: '#8b5cf6' },
+        { name: 'Sevk Edilen', value: sevkCount, color: '#06b6d4' },
+        { name: 'Üretimde', value: uretimdeCount, color: '#3b82f6' },
+        { name: 'Onaylanıp Bekleyen', value: onaylananCount, color: '#f59e0b' },
     ].filter(d => d.value > 0);
+
+    // --- DASHBOARD ANALYTICS DATA ---
+    const companyTotals: Record<string, { count: number, value: number, completed: number, shipped: number }> = {};
+    const productTotals: Record<string, { count: number, value: number }> = {};
+    const fabricTotals: Record<string, { count: number, value: number }> = {};
+    const masterTotals: Record<string, { count: number, value: number }> = {};
+    const durumTotals: Record<string, { count: number, value: number }> = {};
+
+    activeProducts.forEach(p => {
+        // Durum (ÜRETİM BEKLEYEN, ÜRETİMDE, DEPODAKİ, SEVK EDİLEN, ONAYLANAN, İPTAL)
+        const st = p.status;
+        let isDepo = false;
+        let isSevk = false;
+        let isUretimBekleyen = false;
+        let isOnaylanan = false;
+        let isUretimde = false;
+
+        if (st === 'CANCELLED' || st === 'REJECTED') {
+            // İptaller listeye katılmasın diye atlayabiliriz ya da İPTAL diyebiliriz
+        } else {
+            // Sevk edilen miktar varsa ayrı bir sayaçta değerlendirelim
+            const shipped = p.shippedQty || 0;
+            const stored = p.storedQty || 0;
+            const planned = p.quantity || 0;
+
+            // 1. Sevk Edildi durumu
+            if (shipped > 0) {
+                isSevk = true;
+                if (!durumTotals['SEVK EDİLDİ']) durumTotals['SEVK EDİLDİ'] = { count: 0, value: 0 };
+                durumTotals['SEVK EDİLDİ'].count++; // 1 sipariş kısmı sevk
+                durumTotals['SEVK EDİLDİ'].value += shipped;
+            }
+
+            // 2. Depodaki durumu (storedQty - shippedQty > 0)
+            const depoNet = stored - shipped;
+            if (depoNet > 0) {
+                isDepo = true;
+                if (!durumTotals['DEPODAKİ']) durumTotals['DEPODAKİ'] = { count: 0, value: 0 };
+                durumTotals['DEPODAKİ'].count++;
+                durumTotals['DEPODAKİ'].value += depoNet;
+            }
+
+            // 3. Üretimde ve Henüz Depoya Girmemiş (produced - stored)
+            const inProdNet = (p.produced || 0) - stored;
+            // Eğer status IN_PRODUCTION ise veya üretilmiş ama depoya düşmemişse
+            if (st === 'IN_PRODUCTION' || inProdNet > 0) {
+                isUretimde = true;
+                if (!durumTotals['ÜRETİMDE']) durumTotals['ÜRETİMDE'] = { count: 0, value: 0 };
+                durumTotals['ÜRETİMDE'].count++;
+                // Eğer doğrudan inProdNet > 0 ise hesaba kat, değilse tamamını
+                durumTotals['ÜRETİMDE'].value += inProdNet > 0 ? inProdNet : planned;
+            }
+
+            // 4. Onaylanıp Bekleyen (Sadece APPROVED ve üretim yoksa)
+            if (st === 'APPROVED' && (p.produced || 0) === 0) {
+                isOnaylanan = true;
+                if (!durumTotals['ONAYLANAN']) durumTotals['ONAYLANAN'] = { count: 0, value: 0 };
+                durumTotals['ONAYLANAN'].count++;
+                durumTotals['ONAYLANAN'].value += planned;
+            }
+
+            // 5. Üretim Bekleyen (PENDING)
+            if (st === 'PENDING') {
+                isUretimBekleyen = true;
+                if (!durumTotals['ÜRETİM BEKLEYEN']) durumTotals['ÜRETİM BEKLEYEN'] = { count: 0, value: 0 };
+                durumTotals['ÜRETİM BEKLEYEN'].count++;
+                durumTotals['ÜRETİM BEKLEYEN'].value += planned;
+            }
+        }
+
+        // Ürün Adı, Kumaş, Bölüm (Tümü için geçerli, iptaller hariç)
+        if (st !== 'CANCELLED' && st !== 'REJECTED') {
+            if (!productTotals[p.name]) productTotals[p.name] = { count: 0, value: 0 };
+            productTotals[p.name].count++;
+            productTotals[p.name].value += p.quantity;
+
+            if (p.dstAdi && p.dstAdi.trim() !== '' && p.dstAdi !== 'Belirtilmemiş') {
+                const fabric = p.dstAdi;
+                if (!fabricTotals[fabric]) fabricTotals[fabric] = { count: 0, value: 0 };
+                fabricTotals[fabric].count++;
+                fabricTotals[fabric].value += p.quantity;
+            }
+
+            if (p.master && p.master.trim() !== '' && p.master !== 'Belirtilmemiş') {
+                const master = p.master;
+                if (!masterTotals[master]) masterTotals[master] = { count: 0, value: 0 };
+                masterTotals[master].count++;
+                masterTotals[master].value += p.quantity;
+            }
+        }
+    });
+
+    // Company from orders (some products might not have an order, but we can iterate orders)
+    orders.forEach(o => {
+        const company = o.company || 'Belirtilmemiş';
+        if (!companyTotals[company]) companyTotals[company] = { count: 0, value: 0, completed: 0, shipped: 0 };
+
+        o.products.forEach(p => {
+            companyTotals[company].count++;
+            companyTotals[company].value += p.quantity;
+            if (p.status === 'COMPLETED') companyTotals[company].completed++;
+            if ((p.shippedQty || 0) > 0) companyTotals[company].shipped++;
+        });
+    });
+
+    const activeProductCount = activeProducts.length;
+
+    // Sorters
+    const sortByCount = (a: any, b: any) => b.count - a.count;
+    const sortByValue = (a: any, b: any) => b.value - a.value;
+
+    const cariListesi = Object.entries(companyTotals).map(([k, v]) => ({ name: k, ...v }));
+    const productListesi = Object.entries(productTotals).map(([k, v]) => ({ name: k, ...v }));
+    const fabricListesi = Object.entries(fabricTotals).map(([k, v]) => ({ name: k, ...v }));
+    const masterListesi = Object.entries(masterTotals).map(([k, v]) => ({ name: k, ...v }));
+    const durumListesi = Object.entries(durumTotals).map(([k, v]) => ({ name: k, ...v }));
+
+    const getTop10Count = (arr: any[], keyName: string) => arr.sort(sortByCount).slice(0, 10).map(i => ({
+        [keyName]: i.name,
+        'SİPARİŞ SAYISI': i.count,
+        'YÜZDE': activeProductCount > 0 ? (i.count / activeProductCount) * 100 : 0
+    }));
+
+    const getTop10Value = (arr: any[], keyName: string) => arr.sort(sortByValue).slice(0, 10).map(i => ({
+        [keyName]: i.name,
+        'ÜRÜN ADETİ': i.value,
+        'SİPARİŞ_SAYISI': i.count,
+        'ORT_MİKTAR': i.count > 0 ? (i.value / i.count) : 0,
+        'YÜZDE': totalPlanned > 0 ? (i.value / totalPlanned) * 100 : 0
+    }));
+
+    const durumFormatted: Record<string, number> = {};
+    durumListesi.forEach(d => durumFormatted[d.name] = d.count);
+
+    const dashboardData = {
+        general: {
+            toplam_siparis: orders.length,
+            toplam_miktar: totalPlanned,
+            ort_miktar: orders.length > 0 ? (totalPlanned / orders.length).toFixed(1) : 0,
+            farkli_cariler: Object.keys(companyTotals).length,
+            farkli_urunler: Object.keys(productTotals).length,
+            farkli_kumaslar: Object.keys(fabricTotals).length,
+            farkli_bolumler: Object.keys(masterTotals).length
+        },
+        durum_detayli: durumListesi.sort(sortByCount).map((d) => ({
+            'DURUM': d.name,
+            'SİPARİŞ SAYISI': d.count,
+            'YÜZDE': activeProductCount > 0 ? (d.count / activeProductCount) * 100 : 0,
+            'ÜRÜN ADETİ': d.value,
+            'ORT_MİKTAR': d.count > 0 ? (d.value / d.count) : 0
+        })),
+        cari_tamamlanma: cariListesi.sort(sortByCount).slice(0, 10).map(c => ({
+            'CARİ': c.name,
+            'TOPLAM_SİPARİŞ': c.count,
+            'TAMAMLANDI': c.completed,
+            'SEVK_EDİLDİ': c.shipped,
+            'TAMAMLANMA_ORANI': c.count > 0 ? ((c.completed + c.shipped) / c.count) * 100 : 0
+        })),
+        cari_sayisi: getTop10Count(cariListesi, 'CARİ'),
+        cari_miktar: getTop10Value(cariListesi, 'CARİ'),
+        urun_sayisi: getTop10Count(productListesi, 'ÜRÜN ADI'),
+        urun_miktar: getTop10Value(productListesi, 'ÜRÜN ADI'),
+        kumaş_sayisi: getTop10Count(fabricListesi, 'KUMAŞ ADI'),
+        kumaş_miktar: getTop10Value(fabricListesi, 'KUMAŞ ADI'),
+        bolum_sayisi: getTop10Count(masterListesi, 'BÖLÜM'),
+        bolum_miktar: getTop10Value(masterListesi, 'BÖLÜM'),
+        durum: durumFormatted
+    };
 
     return (
         <div className="space-y-6">
@@ -168,12 +357,12 @@ export default async function DashboardPage() {
 
                         <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white border-0">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium opacity-90">Tamamlanan</CardTitle>
+                                <CardTitle className="text-sm font-medium opacity-90">Depodaki</CardTitle>
                                 <CheckCircle2 className="h-5 w-5 opacity-80" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold">{completedProducts.length}</div>
-                                <p className="text-xs opacity-80 mt-1">Bitmiş ürünler</p>
+                                <div className="text-3xl font-bold">{depoCount}</div>
+                                <p className="text-xs opacity-80 mt-1">Depodaki ürünler</p>
                             </CardContent>
                         </Card>
 
@@ -185,22 +374,6 @@ export default async function DashboardPage() {
                             <CardContent>
                                 <div className="text-3xl font-bold">{pendingProducts.length}</div>
                                 <p className="text-xs opacity-80 mt-1">Onay bekliyor</p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium opacity-90">Genel İlerleme</CardTitle>
-                                <TrendingUp className="h-5 w-5 opacity-80" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-bold">%{overallProgress}</div>
-                                <div className="mt-2 h-2 bg-white/30 rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-white transition-all duration-500"
-                                        style={{ width: `${overallProgress}%` }}
-                                    />
-                                </div>
                             </CardContent>
                         </Card>
                     </div>
@@ -241,95 +414,15 @@ export default async function DashboardPage() {
                                 </CardContent>
                             </Card>
                         </Link>
-
-                        <Card className={overdueProducts.length > 0 ? "border-red-200 bg-red-50" : ""}>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Geciken</CardTitle>
-                                <AlertTriangle className={`h-5 w-5 ${overdueProducts.length > 0 ? "text-red-500" : "text-muted-foreground"}`} />
-                            </CardHeader>
-                            <CardContent>
-                                <div className={`text-2xl font-bold ${overdueProducts.length > 0 ? "text-red-600" : ""}`}>
-                                    {overdueProducts.length}
-                                </div>
-                                <p className="text-xs text-muted-foreground">Termin tarihi geçmiş</p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-green-200 bg-green-50">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Bu Hafta</CardTitle>
-                                <CheckCircle2 className="h-5 w-5 text-green-500" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-green-600">{completedThisWeek.length}</div>
-                                <p className="text-xs text-muted-foreground">Tamamlanan ürün</p>
-                            </CardContent>
-                        </Card>
                     </div>
 
                     {/* Grafikler */}
-                    <DashboardCharts chartData={chartData} statusData={statusData} />
+                    <DashboardCharts chartData={chartData} statusData={statusData} dashboardData={dashboardData} />
 
                     {/* Alt Kısım - Üretim Durumu ve Son Aktiviteler */}
                     <div className="grid gap-4 lg:grid-cols-2">
-                        {/* Üretim Durumu */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Package className="h-5 w-5" />
-                                    Üretim Durumu
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                                    {activeProducts.length === 0 ? (
-                                        <p className="text-sm text-muted-foreground text-center py-4">
-                                            Henüz aktif ürün yok.
-                                        </p>
-                                    ) : activeProducts.slice(0, 10).map(p => {
-                                        const percent = Math.min(100, Math.round((p.produced / p.quantity) * 100));
-                                        let colorClass = "bg-red-500";
-                                        let bgClass = "bg-red-100";
-                                        if (p.produced > 0 && p.produced < p.quantity) {
-                                            colorClass = "bg-amber-500";
-                                            bgClass = "bg-amber-100";
-                                        }
-                                        if (p.produced >= p.quantity) {
-                                            colorClass = "bg-green-500";
-                                            bgClass = "bg-green-100";
-                                        }
-
-                                        return (
-                                            <Link
-                                                href={`/dashboard/production/${p.barcode || p.systemCode}`}
-                                                key={p.id}
-                                                className="block hover:bg-slate-50 p-3 rounded-lg transition-colors cursor-pointer border"
-                                            >
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="font-medium text-sm truncate max-w-[150px]">
-                                                        {p.name}
-                                                    </div>
-                                                    <div className="text-xs text-slate-500">{p.systemCode}</div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex-1">
-                                                        <div className={`h-2 w-full ${bgClass} rounded-full overflow-hidden`}>
-                                                            <div
-                                                                className={`h-full ${colorClass} transition-all duration-500`}
-                                                                style={{ width: `${percent}%` }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-sm font-semibold min-w-[80px] text-right">
-                                                        {p.produced} / {p.quantity}
-                                                    </div>
-                                                </div>
-                                            </Link>
-                                        )
-                                    })}
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {/* Haftalık Üretim Trendi */}
+                        <WeeklyTrendChart />
 
                         {/* Son Aktiviteler */}
                         <Card>

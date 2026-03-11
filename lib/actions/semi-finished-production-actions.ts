@@ -145,23 +145,57 @@ export async function updateSemiFinishedProductionQty(id: number, producedQty: n
             return { error: "DATA_MODIFIED", message: "Bu kayıt başka bir kullanıcı tarafından değiştirildi. Lütfen sayfayı yenileyin." };
         }
 
-        // Status güncelle
         let status = "PENDING";
         let completedAt = null;
-        if (producedQty > 0 && producedQty < item.targetQty) {
+        let finalProducedQty = producedQty;
+        let additionalSurplus = 0;
+
+        // Otomatik mal fazlası hesaplama (Konfeksiyon hariç)
+        if (item.category !== "KONFEKSIYON" && producedQty > item.targetQty) {
+            additionalSurplus = producedQty - item.targetQty;
+            finalProducedQty = item.targetQty;
+        }
+
+        if (finalProducedQty > 0 && finalProducedQty < item.targetQty) {
             status = "IN_PROGRESS";
-        } else if (producedQty >= item.targetQty) {
+        } else if (finalProducedQty >= item.targetQty) {
             status = "COMPLETED";
             completedAt = new Date();
         }
 
-        await prisma.semiFinishedProduction.update({
-            where: { id },
-            data: {
-                producedQty,
-                status,
-                ...(completedAt ? { completedAt } : {}),
-                updatedAt: new Date()
+        await prisma.$transaction(async (tx) => {
+            // Asıl tabloyu güncelle
+            await tx.semiFinishedProduction.update({
+                where: { id },
+                data: {
+                    producedQty: finalProducedQty,
+                    status,
+                    ...(completedAt ? { completedAt } : {}),
+                    updatedAt: new Date()
+                }
+            });
+
+            // Fazlalık varsa "Mal Fazlası" tablosuna ayrı bir kayıt at
+            if (additionalSurplus > 0) {
+                // Ekstra ürün bilgilerini almak için
+                const product = await tx.product.findUnique({
+                    where: { id: item.productId },
+                    select: { name: true, model: true, master: true, order: { select: { company: true } } }
+                });
+
+                if (product) {
+                    await tx.konfeksiyonMalFazlasi.create({
+                        data: {
+                            productName: product.name,
+                            model: product.model,
+                            company: product.order?.company,
+                            quantity: additionalSurplus,
+                            category: item.category,
+                            master: product.master,
+                            description: "Otomatik üretim fazlası"
+                        }
+                    });
+                }
             }
         });
 

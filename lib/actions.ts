@@ -61,7 +61,8 @@ export {
     shipProduct,
     getShipments,
     getShippedProducts,
-    updateShipmentStatus
+    updateShipmentStatus,
+    getHistoricalShipmentData
 } from './actions/shipment-actions';
 
 // Semi-finished actions

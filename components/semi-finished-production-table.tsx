@@ -156,21 +156,18 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
             return;
         }
 
-        if (item && qty > item.targetQty) {
-            toast.error(`Hedef miktardan (${item.targetQty}) fazla girilemez`);
-            return;
-        }
-
         const result = await updateSemiFinishedProductionQty(id, qty, item ? new Date(item.updatedAt) : undefined);
         if (result.success) {
             toast.success("Miktar güncellendi");
             setEditingId(null);
             loadData();
+            loadMalFazlasi(); // Refresh Mal Fazlası list automatically
         } else {
             if (result.error === "DATA_MODIFIED") {
                 toast.error(result.message || "Veri değişmişti, tablo yenilendi.");
                 setEditingId(null);
                 loadData();
+                loadMalFazlasi();
             } else {
                 toast.error(result.error || "Hata oluştu");
             }
@@ -439,7 +436,6 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                             onChange={(e) => setEditValue(e.target.value)}
                             className="w-20 text-center"
                             min={0}
-                            max={item.targetQty}
                             autoFocus
                         />
                     ) : (

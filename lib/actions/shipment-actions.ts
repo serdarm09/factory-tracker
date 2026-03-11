@@ -259,3 +259,101 @@ export async function updateShipmentStatus(shipmentId: number, status: string) {
         return { error: "Durum güncellenirken hata oluştu" };
     }
 }
+
+// Geçmişe Dönük Sevkiyat Verileri
+export async function getHistoricalShipmentData(weeksCount: number = 4) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz" };
+
+    try {
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        // Pazartesi başlangıcı (0 = Pazar, 1 = Pazartesi)
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+        const weeks: {
+            week: string;
+            label: string;
+            total: number;
+            dailyData: { day: string; count: number }[];
+        }[] = [];
+
+        const dayNames = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
+        for (let w = 0; w < weeksCount; w++) {
+            // Her hafta için başlangıç ve bitiş tarihi
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() + mondayOffset - (w * 7));
+            weekStart.setHours(0, 0, 0, 0);
+
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 7);
+            weekEnd.setHours(0, 0, 0, 0);
+
+            // Bu haftanın sevkiyat loglarını çek
+            const logs = await prisma.shipmentItem.findMany({
+                where: {
+                    shipment: {
+                        createdAt: {
+                            gte: weekStart,
+                            lt: weekEnd
+                        }
+                    }
+                },
+                include: {
+                    shipment: true
+                }
+            });
+
+            // Günlük dağılım
+            const dailyData: { day: string; count: number }[] = [];
+            for (let d = 0; d < 7; d++) {
+                const dayDate = new Date(weekStart);
+                dayDate.setDate(weekStart.getDate() + d);
+
+                const dayLogs = logs.filter(log => {
+                    const logDate = new Date(log.shipment.createdAt);
+                    return logDate.getDate() === dayDate.getDate() &&
+                        logDate.getMonth() === dayDate.getMonth() &&
+                        logDate.getFullYear() === dayDate.getFullYear();
+                });
+
+                const dayTotal = dayLogs.reduce((sum, log) => sum + log.quantity, 0);
+                dailyData.push({
+                    day: dayNames[dayDate.getDay()],
+                    count: dayTotal
+                });
+            }
+
+            // Toplam
+            const total = logs.reduce((sum, log) => sum + log.quantity, 0);
+
+            // Hafta etiketi
+            let label = "";
+            if (w === 0) {
+                label = "Bu Hafta";
+            } else if (w === 1) {
+                label = "Geçen Hafta";
+            } else {
+                label = `${w} Hafta Önce`;
+            }
+
+            // Tarih aralığı
+            const weekEndDisplay = new Date(weekEnd);
+            weekEndDisplay.setDate(weekEndDisplay.getDate() - 1);
+            const dateRange = `${weekStart.getDate()}/${weekStart.getMonth() + 1} - ${weekEndDisplay.getDate()}/${weekEndDisplay.getMonth() + 1}`;
+
+            weeks.push({
+                week: dateRange,
+                label,
+                total,
+                dailyData
+            });
+        }
+
+        return { data: weeks };
+    } catch (e) {
+        console.error("Historical shipment data fetch error:", e);
+        return { error: "Veri çekilirken hata oluştu" };
+    }
+}
