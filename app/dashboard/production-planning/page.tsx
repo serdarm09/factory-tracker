@@ -84,13 +84,15 @@ export default async function ProductionPlanningPage() {
         <div className="p-6 space-y-6">
             <AutoRefresh intervalMs={10000} />
 
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900">Üretim</h1>
-                <p className="text-slate-500">
-                    {role === "PLANNER"
-                        ? "Uretim sureclerini goruntuleyebilirsiniz (salt okunur)"
-                        : "Uretim sureclerini takip edin ve durum guncellemesi yapin"}
-                </p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Üretim</h1>
+                    <p className="text-slate-500">
+                        {role === "PLANNER"
+                            ? "Uretim sureclerini goruntuleyebilirsiniz (salt okunur)"
+                            : "Uretim sureclerini takip edin ve durum guncellemesi yapin"}
+                    </p>
+                </div>
             </div>
 
             {/* Ana Tablo */}
@@ -107,6 +109,7 @@ export default async function ProductionPlanningPage() {
                     <ProductionPlanningTable
                         products={productsWithShipment}
                         userRole={role}
+                        userId={parseInt((session.user as any).id)}
                     />
                 </CardContent>
             </Card>

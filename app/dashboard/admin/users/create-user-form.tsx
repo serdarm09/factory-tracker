@@ -47,6 +47,10 @@ export function UserCreateForm() {
                                 <option value="WORKER">WORKER (Sevkiyatçı)</option>
                                 <option value="ADMIN">ADMIN (Yönetici)</option>
                             </optgroup>
+                            <optgroup label="Depo &amp; Satın Alma Rolleri">
+                                <option value="RAW_MATERIAL">RAW_MATERIAL (Hammadde Depo Sorumlusu)</option>
+                                <option value="PURCHASING">PURCHASING (Satın Alma Sorumlusu)</option>
+                            </optgroup>
                             <optgroup label="Yarı Mamül Rolleri">
                                 <option value="METAL">METAL (Metal Üretim)</option>
                                 <option value="KONFEKSIYON">KONFEKSIYON (Konfeksiyon Üretim)</option>

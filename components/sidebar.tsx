@@ -2,12 +2,29 @@ import Link from "next/link";
 import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes, Settings2, LifeBuoy, Layers, Search, Database, Megaphone, Truck, Wrench, Calendar, Factory } from "lucide-react";
+import { LayoutDashboard, CalendarDays, CheckCircle, Package, Users, LogOut, ClipboardList, Boxes, Settings2, LifeBuoy, Layers, Search, Database, Megaphone, Truck, Wrench, Calendar, Factory, PackageSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth"; // We need a server action for signOut to work in server components usually, or client. using client for signout button usually best.
 // Actually, calling signOut from server component is not direct. We need a client component for the signout button.
 
 // We will make Sidebar a Server Component to fetch session, but the SignOut button needs client.
+/**
+ * Sidebar — Sunucu Bileşeni (Server Component)
+ *
+ * NextAuth session'dan `role` okur ve mevcut kullanıcının rolüne göre
+ * görünür navigasyon linklerini filtreler.
+ *
+ * Veri çekme:
+ *  - `prisma.product.count` ile onay bekleyen ürün sayısı (badge için)
+ *  - Sadece ADMIN rolünde: okunmamış bildirim sayısı
+ *
+ * Neden Server Component?
+ *  Prisma sorguları build/request sırasında coğkun sunucuda çalışır,
+ *  istemciye sadece HTML gönderilir — DB bilgileri tarayıcıya sızmaz.
+ *
+ * Önemli: `signOut` sunucu bileşeninden doğrudan çağrılamaz.
+ * Bu yüzden ayrı `SignOutButton` client bileşeni kullanılır.
+ */
 import { SignOutButton } from "./sign-out-button";
 import { SupportTicketDialog } from "./support-dialog";
 import { SearchButton } from "./search-button";
@@ -15,13 +32,17 @@ import { NotificationDropdown } from "./notification-dropdown";
 import { SemiFinishedSubmenu } from "./semi-finished-submenu";
 
 export async function Sidebar() {
+    // auth() — NextAuth'dan mevcut session'ı okur (server-side cookie ile)
     const session = await auth();
+    // role: session yoksa veya rol alanı boşsa varsayılan olarak "VIEWER" atınır
     const role = (session?.user as any)?.role || "VIEWER";
 
+    // Async count değişkenleri — DB hatası olursa 0 kalır (try/catch)
     let pendingCount = 0;
     let unreadNotificationCount = 0;
 
     try {
+        // Onay bekleyen (PENDING) ürün sayısı — "Onaylar" menü öğesindeki kırmızı badge
         pendingCount = await prisma.product.count({
             where: { status: 'PENDING' }
         });
@@ -40,6 +61,16 @@ export async function Sidebar() {
         }
     }
 
+    /**
+     * links — Tüm navigasyon öğeleri.
+     * Her öğe `roles` dizisi içeriyor; render sırasında
+     * `role` bu dizide yoksa link görünür olmaz.
+     * `shortcut`: Alt+harf klavye kısayolu (keyboard-shortcut-provider.tsx tarafından yönetilir)
+     * `badge`: true olduğunda kırmızı animate-pulse nokta gösterilir
+     *
+     * Önemli: Yarı Mamül grubunu burada link olarak görünmüyoruz;
+     * SemiFinishedSubmenu client bileşeni olarak render ediyoruz (accordion/submenu).
+     */
     const links = [
         { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "MARKETER", "YARİMAMUL"], shortcut: "D" },
         { name: "NetSim Siparisler", href: "/dashboard/netsim", icon: Database, roles: ["ADMIN", "PLANNER"], shortcut: "N" },
@@ -52,11 +83,13 @@ export async function Sidebar() {
             href: "/dashboard/admin/approvals",
             icon: CheckCircle,
             roles: ["ADMIN"],
-            badge: pendingCount > 0,
+            badge: pendingCount > 0, // PENDING ürün varsa badge göster
             shortcut: "A"
         },
         { name: "Pazarlama", href: "/dashboard/marketing", icon: Megaphone, roles: ["ADMIN", "MARKETER"], shortcut: "M" },
-        { name: "Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "WAREHOUSE"], shortcut: "W" },
+        { name: "Hammadde Depo", href: "/dashboard/raw-materials", icon: Layers, roles: ["ADMIN", "RAW_MATERIAL", "VIEWER"], shortcut: "H" },
+        { name: "Satın Alma", href: "/dashboard/purchases", icon: PackageSearch, roles: ["ADMIN", "PURCHASING", "VIEWER"] },
+        { name: "Mamül Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "WAREHOUSE"], shortcut: "W" },
         { name: "Sevk Edilenler", href: "/dashboard/shipped", icon: Truck, roles: ["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"], shortcut: "T" },
         { name: "Urun girisi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WAREHOUSE"], shortcut: "U" },
         { name: "Kullanicilar", href: "/dashboard/admin/users", icon: Users, roles: ["ADMIN"] },

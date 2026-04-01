@@ -64,7 +64,8 @@ export {
     createSemiFinished,
     updateSemiFinished,
     deleteSemiFinished,
-    updateSemiFinishedStock
+    updateSemiFinishedStock,
+    recordFireAmount
 } from './semi-finished-actions';
 
 // Semi-finished production actions

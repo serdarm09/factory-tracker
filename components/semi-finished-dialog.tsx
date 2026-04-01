@@ -14,6 +14,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createSemiFinished, updateSemiFinished } from "@/lib/actions";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const UNITS = [
+    { value: "adet", label: "Adet" },
+    { value: "metre", label: "Metre (m)" },
+    { value: "kg", label: "Kilogram (kg)" },
+    { value: "litre", label: "Litre (L)" },
+    { value: "top", label: "Top" },
+    { value: "paket", label: "Paket" },
+    { value: "rulo", label: "Rulo" },
+    { value: "kutu", label: "Kutu" },
+];
 
 interface SemiFinished {
     id: number;
@@ -136,12 +148,16 @@ export function SemiFinishedDialog({ children, mode, item }: SemiFinishedDialogP
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="unit">Birim</Label>
-                            <Input
-                                id="unit"
-                                name="unit"
-                                placeholder="adet"
-                                defaultValue={item?.unit || "adet"}
-                            />
+                            <Select name="unit" defaultValue={item?.unit || "adet"}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Birim seçin" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {UNITS.map(u => (
+                                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 

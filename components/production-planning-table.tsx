@@ -1,5 +1,21 @@
 'use client';
 
+/**
+ * ProductionPlanningTable — Üretim Planlama Tablosu
+ *
+ * Bu bileşen, onaylanmış iş emirlerini (Product) üretim aşamalarıyla
+ * birlikte görüntüler ve günceller. Kullanıcı rolleri:
+ *   - ADMIN / PLANNER / KALITE / WORKER: aşamaları düzenleyebilir
+ *   - Diğer roller: sadece görüntüleme
+ *
+ * Üretim akışı (soldan sağa):
+ *   Süngerde → Döşemede → Montajda → Paketlendi → Depoda → Sevk
+ *
+ * Önemli kural: "Depoda" girişi production sayfasından,
+ * "Sevk" işlemi warehouse sayfasından yapılır.
+ * Bu sayfada sadece foam → packaged arasındaki aşamalar düzenlenir.
+ */
+
 import { useState, useMemo, useTransition } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,10 +41,19 @@ import { DateRange } from "react-day-picker";
 import * as XLSX from 'xlsx';
 import { SendToSemiFinishedDialog } from "./send-to-semi-finished-dialog";
 import { BarcodeLabelPrint } from "./barcode-label-print";
+import { MaterialRequestDialog } from "./material-request-dialog";
 
+/**
+ * Props:
+ *   products  — dashboard/page.tsx'den server-side çekilen Product listesi
+ *              (order, logs, inventory relations dahil)
+ *   userRole  — oturum açmış kullanıcının rolü (sidebar.tsx'ten geliyor)
+ *   userId    — oturum açmış kullanıcının ID'si (log kaydı için opsiyonel)
+ */
 interface ProductionPlanningTableProps {
     products: any[];
     userRole: string;
+    userId?: number;
 }
 
 // Üretim aşamaları - Kademeli akış
@@ -46,7 +71,11 @@ const STAGES = [
 
 type StageKey = typeof STAGES[number]['key'];
 
-// Ana durumlar
+/**
+ * STATUS_CONFIG — Ürünün veritabanındaki `status` alanının görsel karşılığı.
+ * Prisma şemasında Product.status: "PENDING" | "APPROVED" | "IN_PRODUCTION" | "COMPLETED" | "SHIPPED"
+ * Bu sayfa sadece APPROVED ve sonrası durumları gösterir.
+ */
 const STATUS_CONFIG = {
     "APPROVED": { label: "Bekliyor", color: "bg-blue-500", textColor: "text-blue-600", icon: Clock },
     "IN_PRODUCTION": { label: "Üretimde", color: "bg-yellow-500", textColor: "text-yellow-600", icon: Wrench },
@@ -54,7 +83,7 @@ const STATUS_CONFIG = {
     "SHIPPED": { label: "Sevk Edildi", color: "bg-teal-500", textColor: "text-teal-600", icon: Truck },
 };
 
-export function ProductionPlanningTable({ products, userRole }: ProductionPlanningTableProps) {
+export function ProductionPlanningTable({ products, userRole, userId }: ProductionPlanningTableProps) {
     // Filtreler
     const [activeTab, setActiveTab] = useState("all");
     const [searchTerm, setSearchTerm] = useState("");
@@ -88,11 +117,11 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         setIsEditingHedef(false);
     };
 
-    // totalRevenue will be computed below after filteredProducts
-    const [filterMaster, setFilterMaster] = useState(""); // Usta filtresi
-    const [dateRange, setDateRange] = useState<DateRange | undefined>();
-    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'terminDate', direction: 'asc' });
-    const [viewMode, setViewMode] = useState<'master' | 'list'>('master'); // Default: Usta Bazlı
+    // totalRevenue: filteredProducts hazır olduktan sonra useMemo ile hesaplanacak (aşağıda)
+    const [filterMaster, setFilterMaster] = useState(""); // Usta filtresi — "none" = usta atanmamış
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(); // Termin tarihine göre filtre
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'terminDate', direction: 'asc' }); // Varsayılan sıralama: termin tarihi artan
+    const [viewMode, setViewMode] = useState<'master' | 'list'>('master'); // 'master': usta bazlı gruplu görünüm, 'list': düz tablo
     const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]); // Çoklu seçim
 
     // Dialog
@@ -114,6 +143,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
     });
     const [editNote, setEditNote] = useState("");
 
+    // Düzenleme yetkisi kontrolü — sadece bu roller aşama miktarlarını güncelleyebilir
     const canEdit = ["ADMIN", "KALITE", "PLANNER", "WORKER", "MARKETER"].includes(userRole);
 
     // Benzersiz firmalar ve ustalar
@@ -129,7 +159,10 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         return Array.from(masters).sort();
     }, [products]);
 
-    // Ürünün kalan miktarını hesapla
+    /**
+     * getRemainingQty — Henüz sevk edilmemiş ürün adedini hesaplar.
+     * Formül: quantity (sipariş adedi) - shippedQty (sevk edilen)
+     */
     const getRemainingQty = (p: any): number => {
         const total = p.quantity || 0;
         const shipped = p.shippedQty || 0;
@@ -146,11 +179,16 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         return p.storedQty || 0;
     };
 
-    // İlerleme yüzdesi - tüm aşamalar dahil
+    /**
+     * getProgress — Progress bar için 0-100 yüzde değeri döner.
+     * Mantığı: Tüm aşama miktarlarının en büyüğünü alır (en ileri aşama).
+     * Örnek: quantity=10, storedQty=8 → %80
+     * NOT: Aşamalar kümülatif değil, her aşamada o andaki fiziksel ürün sayısı tutulur.
+     */
     const getProgress = (p: any): number => {
         if (p.quantity === 0) return 0;
 
-        // Tüm aşamalardaki en yüksek değeri al (bir ürün birden fazla aşamada olamaz, ama en güncel aşama sayılır)
+        // En ileri aşamadaki adetle hesapla (her aşama bağımsız sayılır)
         const maxStageQty = Math.max(
             p.foamQty || 0,
             p.upholsteryQty || 0,
@@ -318,11 +356,18 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         setEditNote(p.engineerNote || "");
     };
 
-    // Kademeli mantık: Bir aşamadaki değer değiştiğinde, sonraki aşamalar otomatik ayarlanır
-    // Kaliteci: foam, upholstery, assembly, packaged düzenleyebilir
-    // Depo girişi (stored) production sayfasından yapılır
-    // Sevk işlemi (shipped) warehouse sayfasından yapılır
-    // Toplam: foam + upholstery + assembly + packaged + stored + shipped <= quantity
+    /**
+     * handleStageChange — Üretim aşaması miktarı değiştiğinde çalışır.
+     *
+     * İş Kuralları:
+     *  1. "shipped" bu sayfadan değiştirilemez (warehouse sayfasından yapılır)
+     *  2. "stored" bu sayfadan değiştirilemez (production/depo giriş sayfasından yapılır)
+     *  3. foam + upholstery + assembly + packaged + stored + shipped <= quantity (toplam sınırı)
+     *  4. Toplam sınırı aşılırsa, değiştirilen aşamadan ÖNCEKI aşamalar otomatik azaltılır
+     *
+     * Örnek (quantity=10, packaged=5 iken assembly=8 girilirse):
+     *  → Mevcut toplam: 5+8=13 > 10 → Fazla=3 → packaged 5'ten 2'ye düşürülür
+     */
     const handleStageChange = (stage: StageKey, value: number, product: any) => {
         const maxTotal = product.quantity;
         const newValues = { ...editValues };
@@ -372,7 +417,11 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         setEditValues(newValues);
     };
 
-    // Kaydet
+    /**
+     * saveEdit — Satır üzerindeki inline edit'i kaydeder.
+     * updateProductStages server action'ını çağırır (lib/actions/product-actions.ts).
+     * Başarılıysa editingProduct null yapılır ve satır normal görünüme döner.
+     */
     const saveEdit = async (p: any) => {
         const total = editValues.foam + editValues.upholstery + editValues.assembly + editValues.packaged + editValues.stored + editValues.shipped;
 
@@ -401,7 +450,11 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         });
     };
 
-    // Dialog içerisinde kaydet
+    /**
+     * saveDialogEdit — Detay dialogundaki kaydet butonunu tetikler.
+     * saveEdit ile aynı server action'ı çağırır; fark olarak selectedProduct
+     * state'ini de güncel değerlerle update eder (dialog'u yeniden fetchlemeden).
+     */
     const saveDialogEdit = async () => {
         if (!selectedProduct) return;
 
@@ -479,6 +532,11 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
 
     const hasActiveFilters = searchTerm || filterCompany || filterMaster || dateRange?.from;
 
+    /**
+     * downloadExcel — Belirli bir usta grubuna ait ürünleri Excel'e aktarır.
+     * Usta bazlı görünümdeki her grubun kendi indirme butonu bu fonksiyonu çağırır.
+     * handleExportToExcel ise tüm filtrelenmiş listeyi export eder.
+     */
     // Excel indirme fonksiyonu
     const downloadExcel = (productsToExport: any[], masterName?: string) => {
         const data = productsToExport.map(p => ({
@@ -680,6 +738,11 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
         }
     };
 
+    /**
+     * handleExportMasterBased — groupedByMaster verisini her usta için
+     * ayrı bir Excel sheet'i olarak tek .xlsx dosyasına yazar.
+     * Sheet adları 31 karakterle sınırlandırılır (Excel limiti).
+     */
     // Usta bazlı Excel export
     const handleExportMasterBased = () => {
         const wb = XLSX.utils.book_new();
@@ -1840,6 +1903,9 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                         <Factory className="h-4 w-4" />
                         Yarı Mamül Üretime Gönder
                     </Button>
+                    {userId && userRole !== "PLANNER" && (
+                        <MaterialRequestDialog userId={userId} departmentName="Üretim Departmanı" />
+                    )}
                     <Button
                         onClick={handleExportSelected}
                         variant="secondary"
@@ -1866,7 +1932,7 @@ export function ProductionPlanningTable({ products, userRole }: ProductionPlanni
                 open={isSemiFinishedDialogOpen}
                 onOpenChange={setIsSemiFinishedDialogOpen}
                 selectedProductIds={selectedProductIds}
-                products={filteredProducts}
+                products={products}
                 onSuccess={() => {
                     setSelectedProductIds([]);
                     // Sayfayı yenile

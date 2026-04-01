@@ -192,6 +192,49 @@ export function ProductDetailDialog({ open, onOpenChange, product, userRole }: P
                 </DialogHeader>
 
                 <div className="space-y-6 mt-4">
+                    {/* Fiyat ve İskonto Bilgisi */}
+                    {product.unitPrice != null && product.quantity > 0 && product.totalPrice != null && (
+                        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg">
+                            <h4 className="font-semibold text-sm text-emerald-800 mb-3 flex items-center gap-2">
+                                💰 Fiyat &amp; İskonto Bilgisi
+                            </h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                                <div className="space-y-1">
+                                    <span className="text-emerald-600 block text-xs font-medium">Birim Fiyat (Liste)</span>
+                                    <span className="font-semibold text-emerald-900">
+                                        {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: product.order?.currency === 'TL' ? 'TRY' : (product.order?.currency || 'TRY') }).format(Number(product.unitPrice))}
+                                    </span>
+                                </div>
+                                <div className="space-y-1">
+                                    <span className="text-emerald-600 block text-xs font-medium">Liste Toplamı</span>
+                                    <span className="font-semibold text-emerald-900">
+                                        {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: product.order?.currency === 'TL' ? 'TRY' : (product.order?.currency || 'TRY') }).format(Number(product.unitPrice) * Number(product.quantity))}
+                                    </span>
+                                </div>
+                                <div className="space-y-1">
+                                    <span className="text-emerald-600 block text-xs font-medium">Uygulanan (Ara Toplam)</span>
+                                    <span className="font-bold text-emerald-900">
+                                        {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: product.order?.currency === 'TL' ? 'TRY' : (product.order?.currency || 'TRY') }).format(Number(product.totalPrice))}
+                                    </span>
+                                </div>
+                                <div className="space-y-1">
+                                    <span className="text-emerald-600 block text-xs font-medium">İskonto Oranı</span>
+                                    <span className="font-bold text-red-600">
+                                        {(() => {
+                                            const listTotal = Number(product.unitPrice) * Number(product.quantity);
+                                            const appliedTotal = Number(product.totalPrice);
+                                            if (listTotal > 0 && appliedTotal < listTotal) {
+                                                const discount = ((listTotal - appliedTotal) / listTotal) * 100;
+                                                return `%${discount.toFixed(2)}`;
+                                            }
+                                            return "Yok";
+                                        })()}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* NetSim Sipariş Bilgileri (En Üstte) */}
                     {(product.aciklama1 || product.aciklama2 || product.aciklama3 || product.aciklama4 || product.dstAdi || product.marketingDescription) && (
                         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">

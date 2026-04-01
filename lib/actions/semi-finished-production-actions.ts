@@ -1,5 +1,24 @@
 "use server";
 
+/**
+ * semi-finished-production-actions.ts — Yarı Mamül Üretim Action'ları
+ *
+ * Kategoriler: METAL | KONFEKSIYON | AHSAP_BOYA | AHSAP_ISKELET | PLASTIK | SUNGER_DOKUM
+ *
+ * Temel akış:
+ *  1. sendToSemiFinishedProduction()  — Planlama'dan bir ürünü kategoriye atar
+ *     (SemiFinishedProduction kaydı oluşturulur: productId + category benzersiz)
+ *  2. updateSemiFinishedProductionQty() — İlgili bölüm kullanıcısı üretilen adedi girer
+ *     • Target aşılırsa (Konfeksiyon hariç) fazlası KonfeksiyonMalFazlasi tablosuna yazar
+ *     • Tamamlandığında status = COMPLETED, completedAt = now
+ *  3. updateSemiFinishedProductionTarget() — Admin hedef miktarını değiştirir
+ *  4. updateSemiFinishedSurplusQty()       — Konfeksiyon mal fazlası günceller
+ *
+ * OCC (Optimistic Concurrency Control):
+ *   Her güncelleme fonksiyonu `expectedUpdatedAt` alabilir;
+ *   DB'deki updatedAt ile eşleşmiyorsa DATA_MODIFIED hatası döner.
+ */
+
 import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 

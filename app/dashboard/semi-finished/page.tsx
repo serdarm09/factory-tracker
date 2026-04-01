@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { Plus, Package, AlertTriangle, ArrowUpCircle, ArrowDownCircle } from "lucide-react";
+import { Plus, Package, AlertTriangle, ArrowUpCircle, ArrowDownCircle, Flame } from "lucide-react";
 import { SemiFinishedTable } from "@/components/semi-finished-table";
 import { SemiFinishedDialog } from "@/components/semi-finished-dialog";
+import { MaterialRequestDialog } from "@/components/material-request-dialog";
+import { FireEntryDialog } from "@/components/fire-entry-dialog";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
@@ -77,6 +79,16 @@ export default async function SemiFinishedPage({
     const lowStockItems = filteredItems.filter(item => item.quantity > 0 && item.quantity <= item.minStock);
     const outOfStockItems = filteredItems.filter(item => item.quantity === 0);
 
+    // Bugünkü fire loglarını getir
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const fireLogs = await (prisma as any).semiFinishedLog.findMany({
+        where: { type: "FIRE", createdAt: { gte: today } },
+        include: { semiFinished: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' }
+    });
+    const totalFireToday = fireLogs.reduce((sum: number, l: any) => sum + l.quantity, 0);
+
     // Kategorilere göre grupla ve lokasyonlar
     const allCategories = await prisma.semiFinished.findMany({
         select: { category: true },
@@ -99,12 +111,19 @@ export default async function SemiFinishedPage({
                     <h2 className="text-3xl font-bold tracking-tight">Yarı Mamül Stok</h2>
                     <p className="text-muted-foreground">Yarı mamül ürünlerin stok takibi</p>
                 </div>
-                <SemiFinishedDialog mode="create">
-                    <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Yeni Yarı Mamül
-                    </Button>
-                </SemiFinishedDialog>
+                <div className="flex items-center gap-2">
+                    <MaterialRequestDialog
+                        userId={parseInt((session?.user as any)?.id || "0")}
+                        departmentName="Yarı Mamül Departmanı"
+                    />
+                    <FireEntryDialog items={filteredItems.map(i => ({ id: i.id, name: i.name, unit: i.unit, quantity: i.quantity }))} />
+                    <SemiFinishedDialog mode="create">
+                        <Button>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Yeni Yarı Mamül
+                        </Button>
+                    </SemiFinishedDialog>
+                </div>
             </div>
 
             {/* İstatistik Kartları */}
@@ -150,6 +169,17 @@ export default async function SemiFinishedPage({
                     <CardContent>
                         <div className="text-2xl font-bold">{outOfStockItems.length}</div>
                         <p className="text-xs text-muted-foreground">Acil tedarik gerekli</p>
+                    </CardContent>
+                </Card>
+
+                <Card className={totalFireToday > 0 ? "border-orange-200 bg-orange-50" : ""}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Bugünkü Fire</CardTitle>
+                        <Flame className={`h-5 w-5 ${totalFireToday > 0 ? "text-orange-500" : "text-muted-foreground"}`} />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-orange-700">{fireLogs.length}</div>
+                        <p className="text-xs text-muted-foreground">{fireLogs.length} üründe {totalFireToday.toFixed(1)} birim fire</p>
                     </CardContent>
                 </Card>
             </div>

@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, Save, Plus, Download, FileEdit, Edit, ChevronDown, ChevronUp, ArrowUpDown, CheckCircle2, Clock, PackagePlus } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Trash2, Save, Plus, Download, FileEdit, Edit, ChevronDown, ChevronUp, ArrowUpDown, CheckCircle2, Clock, PackagePlus, Flame, Search, X } from "lucide-react";
 import { getSemiFinishedProductionByCategory, updateSemiFinishedProductionQty, updateSemiFinishedProductionTarget, removeSemiFinishedProduction, updateSemiFinishedSurplusQty } from "@/lib/actions/semi-finished-production-actions";
 import { getMalFazlasiList, addMalFazlasi, deleteMalFazlasi, updateMalFazlasiQty } from "@/lib/actions/mal-fazlasi-actions";
+import { recordFireAmount, getFireLogs, updateFireLog, deleteFireLog, saveManualFireLog, getManualFireLogs, updateManualFireLog, deleteManualFireLog } from "@/lib/actions/semi-finished-actions";
 import { toast } from "sonner";
 import { ManualAddSemiFinishedDialog } from "./manual-add-semi-finished-dialog";
 import { EditProductNotesDialog } from "./edit-product-notes-dialog";
@@ -53,6 +56,7 @@ interface SemiFinishedProductionItem {
 }
 
 export function SemiFinishedProductionTable({ category, userRole }: SemiFinishedProductionTableProps) {
+    const router = useRouter();
     const [items, setItems] = useState<SemiFinishedProductionItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<number | null>(null);
@@ -74,6 +78,39 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
     const [editingMalFazlasiId, setEditingMalFazlasiId] = useState<number | null>(null);
     const [malFazlasiDusValue, setMalFazlasiDusValue] = useState("");
     const [isManualAddOpen, setIsManualAddOpen] = useState(false);
+
+    // Fire (zayi) state
+    const [semiFinishedList, setSemiFinishedList] = useState<any[]>([]);
+    const [fireEntries, setFireEntries] = useState<Record<number, { qty: string; unit: string }>>({});
+    const [savingFireId, setSavingFireId] = useState<number | null>(null);
+    const [manualFireForm, setManualFireForm] = useState({ productName: "", qty: "", unit: "adet", note: "" });
+    const [manualFireSaving, setManualFireSaving] = useState(false);
+    const [fireLogs, setFireLogs] = useState<any[]>([]);
+    const [editingLog, setEditingLog] = useState<{ id: number; productName: string; qty: string; unit: string; note: string } | null>(null);
+
+    // Fire kayıtları filtre state'leri
+    const [fireSearch, setFireSearch] = useState("");
+    const [fireDateFrom, setFireDateFrom] = useState("");
+    const [fireDateTo, setFireDateTo] = useState("");
+    const [fireUnitFilter, setFireUnitFilter] = useState("ALL");
+
+    const filteredFireLogs = useMemo(() => {
+        return fireLogs.filter(log => {
+            const term = fireSearch.toLowerCase();
+            const matchSearch = !fireSearch ||
+                (log.productName || log.semiFinished?.name || "").toLowerCase().includes(term) ||
+                (log.note || "").toLowerCase().includes(term);
+            const matchUnit = fireUnitFilter === "ALL" || log.unit === fireUnitFilter;
+            const logDate = new Date(log.createdAt);
+            const matchFrom = !fireDateFrom || logDate >= new Date(fireDateFrom);
+            const matchTo = !fireDateTo || logDate <= new Date(fireDateTo + "T23:59:59");
+            return matchSearch && matchUnit && matchFrom && matchTo;
+        });
+    }, [fireLogs, fireSearch, fireDateFrom, fireDateTo, fireUnitFilter]);
+
+    const fireActiveFilters = fireSearch || fireDateFrom || fireDateTo || fireUnitFilter !== "ALL";
+    const fireUnits = useMemo(() => Array.from(new Set(fireLogs.map(l => l.unit))).sort(), [fireLogs]);
+
     const [editNotesDialog, setEditNotesDialog] = useState<{
         open: boolean;
         productId: number;
@@ -132,9 +169,29 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
         }
     };
 
+    const loadSemiFinishedList = async () => {
+        try {
+            const res = await fetch("/api/semi-finished-list");
+            if (res.ok) {
+                const data = await res.json();
+                setSemiFinishedList(data);
+                const init: Record<number, { qty: string; unit: string }> = {};
+                data.forEach((item: any) => { init[item.id] = { qty: "", unit: item.unit || "adet" }; });
+                setFireEntries(init);
+            }
+        } catch { }
+    };
+
+    const loadFireLogs = async () => {
+        const logs = await getManualFireLogs();
+        setFireLogs(logs as any[]);
+    };
+
     useEffect(() => {
         loadData();
         loadMalFazlasi();
+        loadSemiFinishedList();
+        loadFireLogs();
     }, [category]);
 
     const handleEdit = (id: number, currentQty: number) => {
@@ -335,44 +392,62 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
     };
 
     const handleExportToExcel = () => {
-        if (sortedItems.length === 0) {
-            toast.error("Dışa aktarılacak veri yok");
+        const ongoingItems = sortedItems.filter(item => item.status !== "COMPLETED");
+        if (ongoingItems.length === 0) {
+            toast.error("Dışa aktarılacak devam eden ürün yok");
             return;
         }
 
-        const exportData = sortedItems.map(item => ({
+        const exportData = ongoingItems.map(item => ({
             'Firma': item.product.order?.company || '-',
             'Ürün': item.product.name,
-            'Termin': item.product.terminDate ? format(new Date(item.product.terminDate), 'dd.MM.yyyy') : '-',
+            'Model': item.product.model || '-',
             'Usta': item.product.master || '-',
             'DST': item.product.dstAdi || '-',
             'Hedef': item.targetQty,
-            'Durum': getStatusText(item.status),
-            'Açıklama': item.product.description || '-',
-            'Açıklama1': item.product.aciklama1 || '-',
+            'Sipariş Tarihi': item.createdAt ? format(new Date(item.createdAt), 'dd.MM.yyyy') : '-',
+            'Termin Tarihi': item.product.terminDate ? format(new Date(item.product.terminDate), 'dd.MM.yyyy') : '-',
+            'Açıklamalar': [
+                item.product.description,
+                item.product.aciklama1,
+                item.product.aciklama2,
+                item.product.aciklama3,
+                item.product.aciklama4,
+            ].filter(Boolean).join(' | ') || '-',
         }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
 
         ws['!cols'] = [
             { wch: 20 }, // Firma
-            { wch: 25 }, // Ürün
-            { wch: 14 }, // Termin
+            { wch: 30 }, // Ürün
+            { wch: 20 }, // Model
             { wch: 15 }, // Usta
             { wch: 15 }, // DST
             { wch: 10 }, // Hedef
-            { wch: 15 }, // Durum
-            { wch: 30 }, // Açıklama
-            { wch: 30 }, // Açıklama1
+            { wch: 15 }, // Sipariş Tarihi
+            { wch: 15 }, // Termin Tarihi
+            { wch: 40 }, // Açıklamalar
         ];
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, categoryNames[category] || category);
 
-        const fileName = `Yari_Mamul_${categoryNames[category]}_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.xlsx`;
+        // A4 yatay sayfa ayarı
+        ws['!pageSetup'] = {
+            paperSize: 9,        // 9 = A4
+            orientation: 'landscape',
+            fitToPage: true,
+            fitToWidth: 1,
+            fitToHeight: 0,
+        } as any;
+        ws['!printOptions'] = { gridLines: false } as any;
+        ws['!margins'] = { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 } as any;
+
+        const fileName = `Devam_Eden_${categoryNames[category]}_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.xlsx`;
         XLSX.writeFile(wb, fileName);
 
-        toast.success(`${sortedItems.length} kayıt Excel'e aktarıldı`);
+        toast.success(`${ongoingItems.length} devam eden ürün Excel'e aktarıldı`);
     };
 
     if (loading) {
@@ -868,6 +943,14 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                                 {malFazlasiList.length}
                             </span>
                         </TabsTrigger>
+                        {/* Fire Tab */}
+                        <TabsTrigger value="fire" className="flex items-center gap-2">
+                            <Flame className="h-4 w-4 text-orange-500" />
+                            Fire
+                            <span className="ml-1 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                {fireLogs.length}
+                            </span>
+                        </TabsTrigger>
                     </TabsList>
 
                     {/* Devam Eden Tab */}
@@ -1316,6 +1399,262 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                                 </TableBody>
                             </Table>
                         )}
+                    </TabsContent>
+
+                    {/* 🔥 Fire Tab Content - Manuel Giriş */}
+                    <TabsContent value="fire">
+                        <div className="max-w-2xl mx-auto mt-4 space-y-6">
+                            {/* Info banner */}
+                            <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                                <Flame className="h-5 w-5 text-orange-500 shrink-0" />
+                                <div>
+                                    <p className="text-sm font-semibold text-orange-800">Günlük Fire / Zayi Kaydı</p>
+                                    <p className="text-xs text-orange-600">Deri-Kumaş adını yazın, fire miktarını ve birimini girin, ardından kaydedin.</p>
+                                </div>
+                            </div>
+
+                            {/* Manuel Form */}
+                            <div className="border rounded-xl p-5 bg-white shadow-sm space-y-4">
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-slate-700">Yarı Mamül Adı</label>
+                                    <Input
+                                        placeholder="Ör: Ahşap İskelet - Model A"
+                                        value={manualFireForm.productName}
+                                        onChange={e => setManualFireForm(prev => ({ ...prev, productName: e.target.value }))}
+                                        className="h-10"
+                                    />
+                                </div>
+                                <div className="flex gap-3">
+                                    <div className="flex-1 space-y-1.5">
+                                        <label className="text-sm font-medium text-slate-700">Fire Miktarı</label>
+                                        <Input
+                                            type="number" step="0.01" min="0.01" placeholder="0"
+                                            value={manualFireForm.qty}
+                                            onChange={e => setManualFireForm(prev => ({ ...prev, qty: e.target.value }))}
+                                            className="h-10 text-center"
+                                        />
+                                    </div>
+                                    <div className="w-36 space-y-1.5">
+                                        <label className="text-sm font-medium text-slate-700">Birim</label>
+                                        <Select value={manualFireForm.unit} onValueChange={v => setManualFireForm(prev => ({ ...prev, unit: v }))}>
+                                            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {["adet", "metre", "kg", "litre", "top", "paket", "rulo", "kutu"].map(u => (
+                                                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-slate-700">Açıklama <span className="text-slate-400 font-normal">(opsiyonel)</span></label>
+                                    <Input
+                                        placeholder="Nedenini kısaca açıklayın..."
+                                        value={manualFireForm.note}
+                                        onChange={e => setManualFireForm(prev => ({ ...prev, note: e.target.value }))}
+                                        className="h-10"
+                                    />
+                                </div>
+                                <Button
+                                    className="w-full h-11 bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold"
+                                    disabled={!manualFireForm.productName.trim() || !manualFireForm.qty || manualFireSaving}
+                                    onClick={async () => {
+                                        const qty = parseFloat(manualFireForm.qty);
+                                        if (!manualFireForm.productName.trim()) { toast.error("Ürün adı zorunludur"); return; }
+                                        if (isNaN(qty) || qty <= 0) { toast.error("Geçerli bir miktar girin"); return; }
+                                        setManualFireSaving(true);
+                                        try {
+                                            const qty = parseFloat(manualFireForm.qty);
+                                            const res = await saveManualFireLog(
+                                                manualFireForm.productName.trim(),
+                                                qty,
+                                                manualFireForm.unit,
+                                                manualFireForm.note
+                                            );
+                                            if (res.success) {
+                                                toast.success(`Fire kaydedildi: ${qty} ${manualFireForm.unit} — ${manualFireForm.productName}`);
+                                                setManualFireForm({ productName: "", qty: "", unit: "adet", note: "" });
+                                                loadFireLogs();
+                                            } else { toast.error(res.error || "Hata oluştu"); }
+                                        } finally { setManualFireSaving(false); }
+                                    }}
+                                >
+                                    {manualFireSaving ? "Kaydediliyor..." : <><Flame className="h-4 w-4 mr-2" />Fire Kaydet</>}
+                                </Button>
+                            </div>
+
+                            {/* Fire Kayıtları Listesi */}
+                            <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Flame className="h-4 w-4 text-orange-500" />
+                                    Son Fire Kayıtları
+                                    <span className="text-xs text-slate-400 font-normal">
+                                        ({fireActiveFilters ? `${filteredFireLogs.length} / ${fireLogs.length}` : fireLogs.length})
+                                    </span>
+                                </h4>
+
+                                {/* Filtre satırı */}
+                                {fireLogs.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 items-center pb-1">
+                                        <div className="relative flex-1 min-w-[160px]">
+                                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                                            <Input
+                                                placeholder="Ürün adı veya not ara..."
+                                                value={fireSearch}
+                                                onChange={e => setFireSearch(e.target.value)}
+                                                className="pl-8 h-8 text-sm"
+                                            />
+                                        </div>
+                                        {fireUnits.length > 1 && (
+                                            <Select value={fireUnitFilter} onValueChange={setFireUnitFilter}>
+                                                <SelectTrigger className="w-[110px] h-8 text-sm">
+                                                    <SelectValue placeholder="Birim" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="ALL">Tüm Birimler</SelectItem>
+                                                    {fireUnits.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                        <div className="flex items-center gap-1">
+                                            <Input
+                                                type="date"
+                                                value={fireDateFrom}
+                                                onChange={e => setFireDateFrom(e.target.value)}
+                                                className="w-[130px] h-8 text-sm"
+                                                title="Başlangıç tarihi"
+                                            />
+                                            <span className="text-slate-400 text-xs">—</span>
+                                            <Input
+                                                type="date"
+                                                value={fireDateTo}
+                                                onChange={e => setFireDateTo(e.target.value)}
+                                                className="w-[130px] h-8 text-sm"
+                                                title="Bitiş tarihi"
+                                            />
+                                        </div>
+                                        {fireActiveFilters && (
+                                            <button
+                                                onClick={() => { setFireSearch(""); setFireDateFrom(""); setFireDateTo(""); setFireUnitFilter("ALL"); }}
+                                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600"
+                                            >
+                                                <X className="h-3.5 w-3.5" /> Temizle
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {fireLogs.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-6">Henüz fire kaydı yok.</p>
+                                ) : filteredFireLogs.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-6">Filtreyle eşleşen kayıt bulunamadı.</p>
+                                ) : (
+                                    <div className="border rounded-lg overflow-hidden">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="bg-orange-50/40">
+                                                    <TableHead>Yarı Mamül</TableHead>
+                                                    <TableHead className="text-center w-28">Miktar</TableHead>
+                                                    <TableHead className="text-center w-24">Birim</TableHead>
+                                                    <TableHead>Açıklama</TableHead>
+                                                    <TableHead className="text-right w-28">Tarih</TableHead>
+                                                    <TableHead className="text-right w-20">İşlem</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {filteredFireLogs.map((log: any) => {
+                                                    const isEditing = editingLog?.id === log.id;
+                                                    return (
+                                                        <TableRow key={log.id} className="hover:bg-orange-50/20">
+                                                            <TableCell className="font-medium text-sm">
+                                                                {isEditing ? (
+                                                                    <Input
+                                                                        value={editingLog!.productName}
+                                                                        onChange={e => setEditingLog(prev => prev ? { ...prev, productName: e.target.value } : null)}
+                                                                        className="h-7 min-w-[120px]"
+                                                                        placeholder="Ürün adı..."
+                                                                    />
+                                                                ) : (log.productName || log.semiFinished?.name || "—")}
+                                                            </TableCell>
+                                                            <TableCell className="text-center">
+                                                                {isEditing ? (
+                                                                    <Input
+                                                                        type="number" step="0.01"
+                                                                        value={editingLog!.qty}
+                                                                        onChange={e => setEditingLog(prev => prev ? { ...prev, qty: e.target.value } : null)}
+                                                                        className="w-20 h-7 text-center mx-auto"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-mono font-semibold text-orange-600">{log.quantity}</span>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="text-center">
+                                                                {isEditing ? (
+                                                                    <Select value={editingLog!.unit} onValueChange={v => setEditingLog(prev => prev ? { ...prev, unit: v } : null)}>
+                                                                        <SelectTrigger className="w-20 h-7 mx-auto"><SelectValue /></SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {["adet", "metre", "kg", "litre", "top", "paket", "rulo", "kutu"].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                ) : (
+                                                                    <span className="text-sm">{log.unit}</span>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="text-sm text-slate-500">
+                                                                {isEditing ? (
+                                                                    <Input
+                                                                        value={editingLog!.note}
+                                                                        onChange={e => setEditingLog(prev => prev ? { ...prev, note: e.target.value } : null)}
+                                                                        className="h-7"
+                                                                        placeholder="Açıklama..."
+                                                                    />
+                                                                ) : (log.note || "—")}
+                                                            </TableCell>
+                                                            <TableCell className="text-right text-xs text-slate-400">
+                                                                {new Date(log.createdAt).toLocaleDateString("tr-TR")}
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                {isEditing ? (
+                                                                    <div className="flex justify-end gap-1">
+                                                                        <Button size="icon" className="h-7 w-7 bg-green-600 hover:bg-green-700"
+                                                                            onClick={async () => {
+                                                                                const res = await updateManualFireLog(log.id, editingLog!.productName, parseFloat(editingLog!.qty), editingLog!.unit, editingLog!.note);
+                                                                                if (res.success) { toast.success("Güncellendi"); setEditingLog(null); loadFireLogs(); }
+                                                                                else toast.error(res.error);
+                                                                            }}>
+                                                                            <Save className="h-3.5 w-3.5" />
+                                                                        </Button>
+                                                                        <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setEditingLog(null)}>
+                                                                            ✕
+                                                                        </Button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex justify-end gap-1">
+                                                                        <Button size="icon" variant="ghost" className="h-7 w-7"
+                                                                            onClick={() => setEditingLog({ id: log.id, productName: log.productName || "", qty: String(log.quantity), unit: log.unit, note: log.note || "" })}>
+                                                                            <Edit className="h-3.5 w-3.5 text-blue-600" />
+                                                                        </Button>
+                                                                        <Button size="icon" variant="ghost" className="h-7 w-7"
+                                                                            onClick={async () => {
+                                                                                if (!confirm("Bu kaydı silmek istiyor musunuz?")) return;
+                                                                                const res = await deleteManualFireLog(log.id);
+                                                                                if (res.success) { toast.success("Silindi"); loadFireLogs(); }
+                                                                                else toast.error(res.error);
+                                                                            }}>
+                                                                            <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                                                        </Button>
+                                                                    </div>
+                                                                )}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </TabsContent>
                 </Tabs>
             )}

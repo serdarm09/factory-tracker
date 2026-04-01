@@ -1,5 +1,22 @@
 "use client";
 
+/**
+ * DashboardCharts — Analiz Grafikleri
+ *
+ * Dashboard ana sayfasının alt kısmına gelen analiz panö. 6 sekme:
+ *   • Genel Özet     — KPI kartları + son 7 gün üretim bar chart + durum pie chart
+ *   • Durum Analizi  — Sipariş durumlarının detaylı chart + tablo
+ *   • Cariler         — Müşteri bazlı sipariş/hacim analizi
+ *   • Ürünler         — En çok sipariş edilen ürün modelleri
+ *   • Kumaşlar        — Renk/kumaş tipi dağılımı
+ *   • Bölümler        — Usta/ateli bazında üretim dağılımı
+ *
+ * dashboardData: app/dashboard/page.tsx'deki hesaplamadan geliyor.
+ * Yapı : { general, durum_detayli, cari_sayisi, cari_miktar, cari_tamamlanma,
+ *           urun_sayisi, urun_miktar, kumaş_sayisi, kumaş_miktar,
+ *           bolum_sayisi, bolum_miktar }
+ */
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,15 +62,24 @@ export function DashboardCharts({ chartData, statusData, dashboardData }: Dashbo
     const [kumasView, setKumasView] = useState<'sayisi' | 'miktar'>('sayisi');
     const [bolumView, setBolumView] = useState<'sayisi' | 'miktar'>('sayisi');
 
+    // renk paleti — bar/pie chart'lar için sıralı renk dizileri
     const weekColors = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
     const donutColors = ['#10b981', '#f43f5e', '#eab308', '#06b6d4', '#8b5cf6', '#3b82f6', '#f97316', '#64748b'];
 
+    // kısaltma — dashboardData'ya kısa referans (aşağıda d kullanılır)
     const d = dashboardData;
 
     if (!dashboardData) {
         return <div className="text-center p-10 text-muted-foreground">Analiz verileri yüklenemedi.</div>;
     }
 
+    /**
+     * renderGenericTable — Genel amaçlı analiz tablosu render yardımcısı.
+     * @param dataArray — satır verisi (object array)
+     * @param columns   — gösterilecek sütun anahtar adları (ilk 4 sütun)
+     * @param valueLabel — (kullanılmıyor, ileride genişletmek için)
+     * YÜZDE sütunu otomatik olarak "%X.X" formatında gösterilir.
+     */
     const renderGenericTable = (dataArray: any[], columns: string[], valueLabel: string) => {
         return (
             <div className="rounded-md border mt-4 overflow-hidden">

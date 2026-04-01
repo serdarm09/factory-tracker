@@ -28,6 +28,7 @@ export interface NetSimOrder {
   DURUM: string | null;
   CARI_NO: number;
   CARI_UNVANI?: string;
+  TOPLAM_HAM_TUTAR: number;
   GENEL_TOPLAM: number;
   DOVIZ_BIRIMI: string;
   ONAYLANDI: string;
@@ -290,6 +291,7 @@ class NetSimClient {
         a.DURUM,
         a.CARI_NO,
         c.CARI_UNVANI,
+        a.TOPLAM_HAM_TUTAR,
         a.GENEL_TOPLAM,
         a.DOVIZ_BIRIMI,
         a.ONAYLANDI,
@@ -387,6 +389,7 @@ class NetSimClient {
         a.DURUM,
         a.CARI_NO,
         c.CARI_UNVANI,
+        a.TOPLAM_HAM_TUTAR,
         a.GENEL_TOPLAM,
         a.DOVIZ_BIRIMI,
         a.ONAYLANDI,

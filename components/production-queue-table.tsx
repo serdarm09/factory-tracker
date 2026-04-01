@@ -20,6 +20,38 @@ import { Label } from "@/components/ui/label";
 import { transferToWarehouse } from "@/lib/actions";
 import { toast } from "sonner";
 
+const formatCompanyNameHTML = (name: string | null | undefined): string => {
+    if (!name) return '-';
+    const words = name.trim().split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+    let wordCount = 0;
+
+    for (const word of words) {
+        if ((currentLine + word).length > 30 || wordCount >= 2) {
+            if (currentLine) {
+                lines.push(currentLine.trim());
+            }
+            if (word.length > 30) {
+                lines.push(word.substring(0, 30) + '-');
+                currentLine = word.substring(30) + ' ';
+                wordCount = 1;
+            } else {
+                currentLine = word + ' ';
+                wordCount = 1;
+            }
+        } else {
+            currentLine += word + ' ';
+            wordCount++;
+        }
+    }
+    if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+    }
+
+    return lines.slice(0, 4).join('<br/>');
+};
+
 type Product = {
     id: number;
     name: string;
@@ -170,6 +202,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
     const [showFilters, setShowFilters] = useState(false);
     const [printDialogProduct, setPrintDialogProduct] = useState<Product | null>(null);
     const [printSevkYeri, setPrintSevkYeri] = useState("");
+    const [printKoliMiktari, setPrintKoliMiktari] = useState("");
 
     const itemsPerPage = 50;
 
@@ -324,7 +357,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
         return <span className="ml-1 text-blue-500">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
     };
 
-    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeri?: string) => {
+    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeri?: string, koliMiktari?: string) => {
         let barcodeDataUrl = '';
         if (p.barcode) {
             try {
@@ -359,12 +392,12 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
             firma: 'Customer', urunKodu: 'Product Code', urunAdi: 'Product Name', barkod: 'Barcode',
             termin: 'Due Date', planlanan: 'Planned', ayakRengi: 'Leg Color',
             kumas: 'Fabric', adet: 'Pcs', barcodTitle: 'BARCODE', sevkYeri: 'Shipping Destination',
-            dstAdi: 'Fabric / Destination'
+            dstAdi: 'Fabric / Destination', koliMiktari: 'Box Qty'
         } : {
             firma: 'Firma', urunKodu: 'Ürün Kodu', urunAdi: 'Ürün Adı', barkod: 'Barkod',
             termin: 'Termin Tarihi', planlanan: 'Planlanan', ayakRengi: 'Ayak Rengi',
             kumas: 'Kumaş', adet: 'Adet', barcodTitle: 'BARKOD', sevkYeri: 'Sevk Yeri',
-            dstAdi: 'DST Adı'
+            dstAdi: 'DST Adı', koliMiktari: 'Koli içi Miktarı'
         };
 
         const printContent = `
@@ -391,8 +424,9 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         ${logoHTML}
                     </div>
                     <div class="info-rows">
-                        <div class="info-row"><span class="lbl">${labels.firma}:</span><span class="val">${p.order?.company || p.company || '-'}</span></div>
+                        <div class="info-row" style="line-height: 1.2;"><span class="lbl" style="vertical-align: top;">${labels.firma}:</span><span class="val" style="display: inline-block; vertical-align: top;">${formatCompanyNameHTML(p.order?.company || p.company)}</span></div>
                         ${sevkYeri ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.sevkYeri}:</span><span class="val" style="font-weight:bold;">${sevkYeri}</span></div>` : ''}
+                        ${koliMiktari ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.koliMiktari}:</span><span class="val" style="font-weight:bold;">${koliMiktari}</span></div>` : ''}
                         <div class="info-row"><span class="lbl">${labels.urunAdi}:</span><span class="val">${p.name}</span></div>
                         <div class="info-row"><span class="lbl">${labels.urunKodu}:</span><span class="val">${p.model}</span></div>
                         <div class="info-row"><span class="lbl">${labels.planlanan}:</span><span class="val">${p.quantity} ${labels.adet}</span></div>
@@ -954,7 +988,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
             )}
 
             {/* Yazdırma Seçenekleri Diyaloğu */}
-            <Dialog open={!!printDialogProduct} onOpenChange={(open) => { if (!open) { setPrintDialogProduct(null); setPrintSevkYeri(""); } }}>
+            <Dialog open={!!printDialogProduct} onOpenChange={(open) => { if (!open) { setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); } }}>
                 <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
@@ -977,7 +1011,22 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                             className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                         {printSevkYeri && (
-                            <p className="text-xs text-blue-600">✓ Çıktıda "Sevk Yeri: {printSevkYeri}" olarak görünecek</p>
+                            <p className="text-xs">✓ Çıktıda "Sevk Yeri: {printSevkYeri}" olarak görünecek</p>
+                        )}
+                    </div>
+
+                    {/* Koli Miktarı Girişi */}
+                    <div className="space-y-1 pb-1">
+                        <label className="text-xs font-medium text-slate-600">Koli içi Miktarı (opsiyonel)</label>
+                        <input
+                            type="text"
+                            placeholder="ör. 2 Koli, 1 Paket..."
+                            value={printKoliMiktari}
+                            onChange={(e) => setPrintKoliMiktari(e.target.value)}
+                            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        {printKoliMiktari && (
+                            <p className="text-xs text-emerald-600">✓ Çıktıda &quot;Koli içi Miktarı: {printKoliMiktari}&quot; olarak görünecek</p>
                         )}
                     </div>
 
@@ -987,7 +1036,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
@@ -996,7 +1045,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
@@ -1005,7 +1054,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-4 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-text', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-text', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             <span className="font-bold tracking-widest text-sm">MARİSİT</span>
                             <span className="text-slate-500">Yazı Logolu (TR)</span>
@@ -1013,7 +1062,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             <span className="text-slate-400 text-sm">— Logosuz (TR)</span>
                         </Button>
@@ -1023,7 +1072,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'marisit-logo-en', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
@@ -1032,7 +1081,7 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'cezzone-en', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
@@ -1041,10 +1090,10 @@ export function ProductionQueueTable({ products, onTransferSuccess }: { products
                         <Button
                             variant="outline"
                             className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo-en', printSevkYeri); setPrintDialogProduct(null); setPrintSevkYeri(""); }}
+                            onClick={() => { handlePrint(printDialogProduct!, 'no-logo-en', printSevkYeri, printKoliMiktari); setPrintDialogProduct(null); setPrintSevkYeri(""); setPrintKoliMiktari(""); }}
                         >
                             <span className="text-slate-400 text-sm">— Logosuz (EN)</span>
-                        </Button>   
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

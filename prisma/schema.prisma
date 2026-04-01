@@ -11,7 +11,7 @@ model User {
   id               Int               @id @default(autoincrement())
   username         String            @unique
   password         String
-  role             String // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER, ENGINEER, METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK, SUNGER_DOKUM, RAW_MATERIAL
+  role             String // ADMIN, PLANNER, MARKETER, WORKER, WAREHOUSE, VIEWER, ENGINEER, METAL, KONFEKSIYON, AHSAP_BOYA, AHSAP_ISKELET, PLASTIK, SUNGER_DOKUM, RAW_MATERIAL, PURCHASING
   createdProducts  Product[]         @relation("CreatedProducts")
   createdOrders    Order[]           @relation("CreatedOrders")
   createdAt        DateTime          @default(now())
@@ -20,6 +20,7 @@ model User {
   supportTickets   SupportTicket[]
   materialRequests MaterialRequest[] @relation("MaterialRequests")
   purchaseRequests PurchaseRequest[] @relation("PurchaseRequests")
+  rawMaterialLogs  RawMaterialLog[]  @relation("RawMaterialLogs")
 }
 
 // Order Grouping (Sipariş)
@@ -242,9 +243,9 @@ model SemiFinished {
   name        String
   code        String            @unique
   description String?
-  quantity    Int               @default(0) // Mevcut stok
-  minStock    Int               @default(10) // Minimum stok seviyesi
-  unit        String            @default("adet")
+  quantity    Float             @default(0) // Mevcut stok
+  minStock    Float             @default(10) // Minimum stok seviyesi
+  unit        String            @default("adet") // adet, metre, kg, litre, top, paket
   category    String? // Kategori (iskelet, sünger, kumaş vb.)
   location    String? // Depo lokasyonu
   createdAt   DateTime          @default(now())
@@ -257,8 +258,9 @@ model SemiFinishedLog {
   id             Int          @id @default(autoincrement())
   semiFinished   SemiFinished @relation(fields: [semiFinishedId], references: [id])
   semiFinishedId Int
-  type           String // IN (giriş), OUT (çıkış)
-  quantity       Int
+  type           String // IN (giriş), OUT (çıkış), FIRE (fire/zayi)
+  quantity       Float
+  unit           String       @default("adet") // Hareketin birimi
   note           String?
   createdAt      DateTime     @default(now())
 }
@@ -331,6 +333,8 @@ enum RawMaterialCategory {
   KOLI_NAYLON
   CIVATA
   DIGER
+  KUMAS
+  DERI
 }
 
 model RawMaterial {
@@ -341,12 +345,32 @@ model RawMaterial {
   minQuantity Float
   maxQuantity Float?
   unit        String              @default("Adet")
+  colorCode   String?
+  supplier    String?             // Tedarikçi / Cari takibi için
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   requests      MaterialRequest[]
   purchaseItems PurchaseRequestItem[]
+  logs          RawMaterialLog[]
+}
+
+enum LogType {
+  IN
+  OUT
+}
+
+model RawMaterialLog {
+  id            Int         @id @default(autoincrement())
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+  rawMaterialId Int
+  type          LogType
+  quantity      Float
+  userId        Int
+  user          User        @relation("RawMaterialLogs", fields: [userId], references: [id])
+  note          String?
+  createdAt     DateTime    @default(now())
 }
 
 enum RequestStatus {
@@ -376,17 +400,21 @@ enum PurchaseStatus {
   PENDING
   ORDERED
   DELIVERED
+  CANCELLED
 }
 
 model PurchaseRequest {
-  id        Int            @id @default(autoincrement())
-  creatorId Int
-  creator   User           @relation("PurchaseRequests", fields: [creatorId], references: [id])
-  status    PurchaseStatus @default(PENDING)
-  priority  String         @default("NORMAL")
-  notes     String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id         Int            @id @default(autoincrement())
+  creatorId  Int
+  creator    User           @relation("PurchaseRequests", fields: [creatorId], references: [id])
+  status     PurchaseStatus @default(PENDING)
+  priority   String         @default("NORMAL")
+  notes      String?
+  termDate   DateTime?      // Sipariş geçildiğinde belirlenen termin tarihi (zorunlu)
+  orderNotes String?        // Sipariş geçilirken eklenen açıklama (opsiyonel)
+  cancelReason String?      // İptal edilirse girilen neden
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   items PurchaseRequestItem[]
 }
@@ -398,4 +426,36 @@ model PurchaseRequestItem {
   rawMaterial       RawMaterial     @relation(fields: [rawMaterialId], references: [id])
   rawMaterialId     Int
   quantity          Float
+}
+
+model ManualFireLog {
+  id          Int      @id @default(autoincrement())
+  productName String   // Serbest metin - yarı mamül adı
+  quantity    Float
+  unit        String   @default("adet")
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// Konfeksiyon Kumaş/Deri Deposu
+// -----------------------------------------------------------------------------
+
+enum KonfeksiyonStockType {
+  KUMAS
+  DERI
+  DIGER
+}
+
+model KonfeksiyonStock {
+  id        Int                  @id @default(autoincrement())
+  name      String               // Örn: "Su Yeşili Keten", "Suni Deri Siyah"
+  type      KonfeksiyonStockType @default(KUMAS)
+  quantity  Float                @default(0)
+  unit      String               @default("Metre")
+  colorCode String?              // Opsiyonel renk veya parti kodu
+  note      String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 }

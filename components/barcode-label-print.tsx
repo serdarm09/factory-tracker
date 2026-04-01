@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Printer } from "lucide-react";
 
 interface BarcodeLabelPrintProps {
@@ -28,9 +29,49 @@ const VARIANTS: { value: LabelVariant; label: string }[] = [
     { value: "cezzone", label: "Cezzone Logolu (TR)" },
 ];
 
+const formatCompanyNameReact = (name: string | null | undefined) => {
+    if (!name) return '-';
+    // Remove duplicate spacing and split
+    const words = name.trim().split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+    let wordCount = 0;
+
+    for (const word of words) {
+        if ((currentLine + word).length > 30 || wordCount >= 2) {
+            if (currentLine) {
+                lines.push(currentLine.trim());
+            }
+            if (word.length > 30) {
+                lines.push(word.substring(0, 30) + '-');
+                currentLine = word.substring(30) + ' ';
+                wordCount = 1;
+            } else {
+                currentLine = word + ' ';
+                wordCount = 1;
+            }
+        } else {
+            currentLine += word + ' ';
+            wordCount++;
+        }
+    }
+    if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+    }
+
+    return (
+        <span style={{ display: "inline-block", verticalAlign: "top" }}>
+            {lines.slice(0, 4).map((line, idx) => (
+                <span key={idx} style={{ display: "block" }}>{line}</span>
+            ))}
+        </span>
+    );
+};
+
 export function BarcodeLabelPrint({ open, onOpenChange, product }: BarcodeLabelPrintProps) {
     const printRef = useRef<HTMLDivElement>(null);
     const [variant, setVariant] = useState<LabelVariant>("marisit-tr");
+    const [koliMiktari, setKoliMiktari] = useState<string>("");
 
     const isEnglish = variant === "marisit-en" || variant === "no-logo-en";
     const showMarisit = variant === "marisit-tr" || variant === "marisit-en";
@@ -168,6 +209,17 @@ export function BarcodeLabelPrint({ open, onOpenChange, product }: BarcodeLabelP
                         </div>
                     </div>
 
+                    {/* Koli Miktarı (Manuel Giriş) */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-600">Koli içi Miktarı (Opsiyonel)</label>
+                        <Input
+                            placeholder="Örn: 2 Koli, 1 Paket..."
+                            value={koliMiktari}
+                            onChange={(e) => setKoliMiktari(e.target.value)}
+                            className="bg-white"
+                        />
+                    </div>
+
                     {/* Önizleme */}
                     <div className="bg-slate-50 p-3 rounded-lg border-2 border-slate-200 flex justify-center">
                         <div ref={printRef}>
@@ -194,17 +246,27 @@ export function BarcodeLabelPrint({ open, onOpenChange, product }: BarcodeLabelP
                                             {product.name}
                                         </div>
                                         <div style={{ fontSize: "30px", color: "#475569", marginBottom: "4px" }}>
-                                              {labels.model}: {product.model}
+                                            {labels.model}: {product.model}
                                         </div>
                                         {product.company && (
-                                            <div style={{ fontSize: "30px", color: "#475569", marginBottom: "6px" }}>
-                                                {labels.company}: {product.company}
+                                            <div style={{
+                                                fontSize: "26px", color: "#475569", marginBottom: "6px",
+                                                lineHeight: "1.2"
+                                            }}>
+                                                <span style={{ verticalAlign: "top" }}>{labels.company}: </span>
+                                                {formatCompanyNameReact(product.company)}
                                             </div>
                                         )}
                                         {/* Kumaş (DST) Bilgisi */}
                                         {(product.dstAdi || product.fabricType) && (
                                             <div style={{ fontSize: "30px", color: "#475569" }}>
                                                 {product.dstAdi || product.fabricType}
+                                            </div>
+                                        )}
+                                        {/* Koli Miktarı Bilgisi */}
+                                        {koliMiktari && (
+                                            <div style={{ fontSize: "30px", color: "#475569", marginTop: "6px" }}>
+                                                {isEnglish ? "Box Qty:" : "Koli içi Miktarı:"} {koliMiktari}
                                             </div>
                                         )}
                                     </div>

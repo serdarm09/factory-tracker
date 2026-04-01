@@ -25,6 +25,37 @@ import { ProductTimelineDialog } from "@/components/product-timeline-dialog";
 
 import { Pagination } from "@/components/ui/pagination";
 
+const formatCompanyNameHTML = (name: string | null | undefined): string => {
+    if (!name) return '-';
+    const words = name.trim().split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+    let wordCount = 0;
+
+    for (const word of words) {
+        if ((currentLine + word).length > 30 || wordCount >= 2) {
+            if (currentLine) {
+                lines.push(currentLine.trim());
+            }
+            if (word.length > 30) {
+                lines.push(word.substring(0, 30) + '-');
+                currentLine = word.substring(30) + ' ';
+                wordCount = 1;
+            } else {
+                currentLine = word + ' ';
+                wordCount = 1;
+            }
+        } else {
+            currentLine += word + ' ';
+            wordCount++;
+        }
+    }
+    if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+    }
+
+    return lines.slice(0, 4).join('<br/>');
+};
 
 type Product = {
     id: number;
@@ -56,6 +87,7 @@ type Product = {
     fabricType?: string;
     master?: string | null;
     imageUrl?: string | null;
+    dstAdi?: string | null;
     // NetSim Açıklamaları
     aciklama1?: string | null;
     aciklama2?: string | null;
@@ -461,10 +493,11 @@ function ShipProductDialog({ product, role }: { product: Product, role: string }
 function PrintLabelButton({ product }: { product: Product }) {
     const [open, setOpen] = useState(false);
     const [sevkYeri, setSevkYeri] = useState("");
+    const [koliMiktari, setKoliMiktari] = useState("");
 
     if (!product.barcode) return null;
 
-    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeriVal?: string) => {
+    const handlePrint = (p: Product, variant: 'marisit-logo' | 'marisit-logo-en' | 'marisit-text' | 'no-logo' | 'no-logo-en' | 'cezzone' | 'cezzone-en', sevkYeriVal?: string, koliMiktariVal?: string) => {
         let barcodeDataUrl = '';
         if (p.barcode) {
             try {
@@ -492,11 +525,11 @@ function PrintLabelButton({ product }: { product: Product }) {
         const labels = isEnglish ? {
             firma: 'Customer', urunKodu: 'Product Code', urunAdi: 'Product Name', barkod: 'Barcode',
             termin: 'Due Date', planlanan: 'Planned', kumas: 'Fabric', adet: 'Pcs',
-            barcodTitle: 'BARCODE', sevkYeri: 'Shipping Destination', dstAdi: 'Fabric / Destination'
+            barcodTitle: 'BARCODE', sevkYeri: 'Shipping Destination', dstAdi: 'Fabric / Destination', koliMiktari: 'Box Qty'
         } : {
             firma: 'Firma', urunKodu: 'Ürün Kodu', urunAdi: 'Ürün Adı', barkod: 'Barkod',
             termin: 'Termin Tarihi', planlanan: 'Planlanan', kumas: 'Kumaş', adet: 'Adet',
-            barcodTitle: 'BARKOD', sevkYeri: 'Sevk Yeri', dstAdi: 'DST Adı'
+            barcodTitle: 'BARKOD', sevkYeri: 'Sevk Yeri', dstAdi: 'DST Adı', koliMiktari: 'Koli içi Miktarı'
         };
 
         const printContent = `
@@ -521,12 +554,13 @@ function PrintLabelButton({ product }: { product: Product }) {
                 <body>
                     <div class="header">${logoHTML}</div>
                     <div class="info-rows">
-                        <div class="info-row"><span class="lbl">${labels.firma}:</span><span class="val">${p.company || '-'}</span></div>
+                        <div class="info-row" style="line-height: 1.2;"><span class="lbl" style="vertical-align: top;">${labels.firma}:</span><span class="val" style="display: inline-block; vertical-align: top;">${formatCompanyNameHTML(p.company)}</span></div>
                         ${sevkYeriVal ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.sevkYeri}:</span><span class="val" style="font-weight:bold;">${sevkYeriVal}</span></div>` : ''}
+                        ${koliMiktariVal ? `<div class="info-row" style="color:#1e40af;"><span class="lbl">${labels.koliMiktari}:</span><span class="val" style="font-weight:bold;">${koliMiktariVal}</span></div>` : ''}
                         <div class="info-row"><span class="lbl">${labels.urunAdi}:</span><span class="val">${p.name}</span></div>
                         <div class="info-row"><span class="lbl">${labels.urunKodu}:</span><span class="val">${p.model}</span></div>
                         <div class="info-row"><span class="lbl">${labels.planlanan}:</span><span class="val">${p.quantity} ${labels.adet}</span></div>
-                        ${p.fabricType ? `<div class="info-row"><span class="lbl">${labels.dstAdi}:</span><span class="val">${p.fabricType}</span></div>` : ''}
+                        ${(p.dstAdi || p.fabricType) ? `<div class="info-row"><span class="lbl">${labels.dstAdi}:</span><span class="val">${p.dstAdi || p.fabricType}</span></div>` : ''}
                     </div>
                     ${barcodeDataUrl ? `
                     <div>
@@ -550,7 +584,7 @@ function PrintLabelButton({ product }: { product: Product }) {
             <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setOpen(true)}>
                 <Printer className="h-4 w-4" />
             </Button>
-            <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSevkYeri(""); }}>
+            <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setSevkYeri(""); setKoliMiktari(""); } }}>
                 <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
@@ -571,7 +605,22 @@ function PrintLabelButton({ product }: { product: Product }) {
                             className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                         {sevkYeri && (
-                            <p className="text-xs text-blue-600">✓ Çıktıda &quot;Sevk Yeri: {sevkYeri}&quot; olarak görünecek</p>
+                            <p className="text-xs">✓ Çıktıda &quot;Sevk Yeri: {sevkYeri}&quot; olarak görünecek</p>
+                        )}
+                    </div>
+
+                    {/* Koli Miktarı */}
+                    <div className="space-y-1 pb-1">
+                        <label className="text-xs font-medium text-slate-600">Koli içi Miktarı (opsiyonel)</label>
+                        <input
+                            type="text"
+                            placeholder="ör. 2 Koli, 1 Paket..."
+                            value={koliMiktari}
+                            onChange={(e) => setKoliMiktari(e.target.value)}
+                            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        {koliMiktari && (
+                            <p className="text-xs">✓ Çıktıda &quot;Koli içi Miktarı: {koliMiktari}&quot; olarak görünecek</p>
                         )}
                     </div>
 
@@ -579,43 +628,43 @@ function PrintLabelButton({ product }: { product: Product }) {
                         {/* Türkçe */}
                         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-1">Türkçe</p>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'marisit-logo', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'marisit-logo', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
                             <span>MARİSİT Logolu (TR)</span>
                         </Button>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'cezzone', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'cezzone', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
                             <span>Cezzone Logolu (TR)</span>
                         </Button>
                         <Button variant="outline" className="justify-start gap-4 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'marisit-text', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'marisit-text', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             <span className="font-bold tracking-widest text-sm">MARİSİT</span>
                             <span className="text-slate-500">Yazı Logolu (TR)</span>
                         </Button>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'no-logo', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'no-logo', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             <span className="text-slate-400 text-sm">— Logosuz (TR)</span>
                         </Button>
 
                         {/* English */}
                         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-2">English</p>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'marisit-logo-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'marisit-logo-en', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/image.png" alt="MARİSİT" className="h-6 object-contain" />
                             <span>MARİSİT Logolu (EN)</span>
                         </Button>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'cezzone-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'cezzone-en', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/cezzonelogo.png" alt="Cezzone" className="h-8 object-contain" />
                             <span>Cezzone Logolu (EN)</span>
                         </Button>
                         <Button variant="outline" className="justify-start gap-3 h-auto py-3"
-                            onClick={() => { handlePrint(product, 'no-logo-en', sevkYeri); setOpen(false); setSevkYeri(""); }}>
+                            onClick={() => { handlePrint(product, 'no-logo-en', sevkYeri, koliMiktari); setOpen(false); setSevkYeri(""); setKoliMiktari(""); }}>
                             <span className="text-slate-400 text-sm">— Logosuz (EN)</span>
                         </Button>
                     </div>
@@ -678,8 +727,8 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
             dateString.includes(term);
 
         const matchesStatus = statusFilter === "ALL" ? true :
-            statusFilter === "TAMAM" ? (p.storedQty || 0) >= p.quantity :
-                statusFilter === "EKSIK" ? (p.storedQty || 0) < p.quantity :
+            statusFilter === "TAMAM" ? ((p.storedQty || 0) + (p.shipped || 0)) >= p.quantity :
+                statusFilter === "EKSIK" ? ((p.storedQty || 0) + (p.shipped || 0)) < p.quantity :
                     p.status === statusFilter;
 
         let matchesDateRequest = true;
@@ -884,11 +933,11 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                             productId={p.id}
                                             productName={p.name}
                                             trigger={
-                                                <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${(p.storedQty || 0) >= p.quantity
+                                                <span className={`cursor-pointer hover:ring-2 hover:ring-offset-1 px-2 py-1 rounded text-xs font-bold ${((p.storedQty || 0) + (p.shipped || 0)) >= p.quantity
                                                     ? 'bg-blue-100 text-blue-700 border border-blue-200'
                                                     : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                                                     }`}>
-                                                    {(p.storedQty || 0) >= p.quantity ? 'TAMAM' : 'EKSİK'}
+                                                    {((p.storedQty || 0) + (p.shipped || 0)) >= p.quantity ? 'TAMAM' : 'EKSİK'}
                                                 </span>
                                             }
                                         />
@@ -999,7 +1048,7 @@ export function WarehouseTable({ products, role }: { products: Product[], role: 
                                     <Detail label="Ayak Özelliği" value={viewProduct.footMaterial} />
                                     <Detail label="Kol Modeli" value={viewProduct.armType} />
                                     <Detail label="Sünger" value={viewProduct.backType} />
-                                    <Detail label="Kumaş Türü" value={viewProduct.fabricType} />
+                                    <Detail label="DST / Kumaş" value={viewProduct.dstAdi || viewProduct.fabricType} />
                                     <Detail label="Malzeme Detayı" value={viewProduct.material} />
                                 </Section>
 

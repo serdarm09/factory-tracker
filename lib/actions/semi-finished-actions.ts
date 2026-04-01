@@ -14,8 +14,8 @@ export async function createSemiFinished(formData: FormData) {
     const code = formData.get("code") as string;
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
-    const quantity = parseInt(formData.get("quantity") as string) || 0;
-    const minStock = parseInt(formData.get("minStock") as string) || 10;
+    const quantity = parseFloat(formData.get("quantity") as string) || 0;
+    const minStock = parseFloat(formData.get("minStock") as string) || 10;
     const unit = (formData.get("unit") as string) || "adet";
     const category = formData.get("category") as string;
     const location = formData.get("location") as string;
@@ -61,8 +61,8 @@ export async function updateSemiFinished(id: number, formData: FormData) {
     const code = formData.get("code") as string;
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
-    const quantity = parseInt(formData.get("quantity") as string) || 0;
-    const minStock = parseInt(formData.get("minStock") as string) || 10;
+    const quantity = parseFloat(formData.get("quantity") as string) || 0;
+    const minStock = parseFloat(formData.get("minStock") as string) || 10;
     const unit = (formData.get("unit") as string) || "adet";
     const category = formData.get("category") as string;
     const location = formData.get("location") as string;
@@ -110,7 +110,6 @@ export async function deleteSemiFinished(id: number) {
         const item = await (prisma as any).semiFinished.findUnique({ where: { id } });
         if (!item) return { error: "Bulunamadı" };
 
-        // İlgili logları sil
         await (prisma as any).semiFinishedLog.deleteMany({ where: { semiFinishedId: id } });
         await (prisma as any).semiFinished.delete({ where: { id } });
 
@@ -160,6 +159,7 @@ export async function updateSemiFinishedStock(
                     semiFinishedId: id,
                     type,
                     quantity,
+                    unit: item.unit,
                     note: note || null
                 }
             })
@@ -180,5 +180,188 @@ export async function updateSemiFinishedStock(
     } catch (e) {
         console.error(e);
         return { error: "İşlem sırasında hata oluştu" };
+    }
+}
+
+// --- GÜNLÜK FİRE KAYDI ---
+export async function recordFireAmount(
+    id: number,
+    quantity: number,
+    unit: string,
+    note?: string
+) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER", "WORKER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+
+    if (quantity <= 0) {
+        return { error: "Fire miktarı 0'dan büyük olmalı" };
+    }
+
+    try {
+        const item = await (prisma as any).semiFinished.findUnique({ where: { id } });
+        if (!item) return { error: "Bulunamadı" };
+
+        const newQuantity = Math.max(0, item.quantity - quantity);
+
+        await (prisma as any).$transaction([
+            (prisma as any).semiFinished.update({
+                where: { id },
+                data: { quantity: newQuantity }
+            }),
+            (prisma as any).semiFinishedLog.create({
+                data: {
+                    semiFinishedId: id,
+                    type: "FIRE",
+                    quantity,
+                    unit,
+                    note: note || null
+                }
+            })
+        ]);
+
+        const userId = parseInt((session.user as any).id);
+        await createAuditLog(
+            "FIRE",
+            "SemiFinished",
+            item.code,
+            `Günlük fire: ${quantity} ${unit}. Kalan stok: ${newQuantity} ${item.unit}`,
+            userId
+        );
+
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true, newQuantity };
+    } catch (e) {
+        console.error(e);
+        return { error: "Fire kaydı sırasında hata oluştu" };
+    }
+}
+
+// --- FİRE KAYITLARINI GETİR ---
+export async function getFireLogs(category?: string) {
+    const session = await auth();
+    if (!session) return [];
+
+    const logs = await (prisma as any).semiFinishedLog.findMany({
+        where: { type: "FIRE" },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        include: {
+            semiFinished: {
+                select: { id: true, name: true, code: true, category: true }
+            }
+        }
+    });
+    return logs;
+}
+
+// --- FİRE KAYDINI GÜNCELLE ---
+export async function updateFireLog(
+    logId: number,
+    quantity: number,
+    unit: string,
+    note?: string
+) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+    try {
+        await (prisma as any).semiFinishedLog.update({
+            where: { id: logId },
+            data: { quantity, unit, note: note || null }
+        });
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        console.error(e);
+        return { error: "Güncelleme sırasında hata oluştu" };
+    }
+}
+
+// --- FİRE KAYDINI SİL ---
+export async function deleteFireLog(logId: number) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+    try {
+        await (prisma as any).semiFinishedLog.delete({ where: { id: logId } });
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        console.error(e);
+        return { error: "Silme sırasında hata oluştu" };
+    }
+}
+
+// ===== SERBEST METİN FİRE LOG (ManualFireLog) =====
+
+export async function saveManualFireLog(
+    productName: string,
+    quantity: number,
+    unit: string,
+    note?: string
+) {
+    const session = await auth();
+    if (!session) return { error: "Yetkisiz işlem" };
+
+    try {
+        const log = await (prisma as any).manualFireLog.create({
+            data: { productName, quantity, unit, note: note || null }
+        });
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true, id: log.id };
+    } catch (e) {
+        console.error(e);
+        return { error: "Fire kaydı sırasında hata oluştu" };
+    }
+}
+
+export async function getManualFireLogs() {
+    const session = await auth();
+    if (!session) return [];
+
+    return await (prisma as any).manualFireLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 100
+    });
+}
+
+export async function updateManualFireLog(
+    id: number,
+    productName: string,
+    quantity: number,
+    unit: string,
+    note?: string
+) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+    try {
+        await (prisma as any).manualFireLog.update({
+            where: { id },
+            data: { productName, quantity, unit, note: note || null }
+        });
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        return { error: "Güncelleme sırasında hata oluştu" };
+    }
+}
+
+export async function deleteManualFireLog(id: number) {
+    const session = await auth();
+    if (!session || !["ADMIN", "PLANNER"].includes((session.user as any).role)) {
+        return { error: "Yetkisiz işlem" };
+    }
+    try {
+        await (prisma as any).manualFireLog.delete({ where: { id } });
+        revalidatePath("/dashboard/semi-finished");
+        return { success: true };
+    } catch (e) {
+        return { error: "Silme sırasında hata oluştu" };
     }
 }

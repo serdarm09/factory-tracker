@@ -1,5 +1,23 @@
 'use server';
 
+/**
+ * order-actions.ts — Sipariş Yönetimi Action'ları
+ *
+ * createOrder — Planlama sayfasından (planning-form.tsx) yeni bir sipariş oluşturur.
+ *   • Önce Order kaydı oluşturulur (company, name)
+ *   • Sonra her item için Product oluşturulur (PENDING status ile)
+ *   • SystemCode formatı: {orderId}-{itemCode}-{index+1}
+ *     Örnek: 42-KOLT001-1, 42-KOLT001-2 (aynı ürün iki kez varsa)
+ *   • Görsel: Katalog'dan resim çekilerek imageUrl set edilir
+ *
+ * getOrderForClone — Var olan siparişi klonlamak için veriyi döndürür.
+ *   terminDate null olarak döner (yeni sipariş yeni tarih ister).
+ *
+ * bulkUpdateOrderProducts — Tüm sipariş ürünlerini toplu günceller (termin/usta).
+ * bulkUpdateSelectedProducts — Seçili ürünleri toplu günceller;
+ *   DRAFT olanı aynı zamanda PENDING yapar.
+ */
+
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";

@@ -1,5 +1,26 @@
 'use server';
 
+/**
+ * product-actions.ts — Ürün İş Emri Server Action'ları
+ *
+ * Onay akışı (Product.status geçişleri):
+ *   DRAFT → PENDING → MARKETING_REVIEW → APPROVED → IN_PRODUCTION → COMPLETED
+ *   Her aşama için ayrı bir action var:
+ *     sendToApproval()       DRAFT → PENDING
+ *     approveProduct()       PENDING → MARKETING_REVIEW  (Admin onayı)
+ *     marketingApproveProduct() MARKETING_REVIEW → APPROVED (Pazarlama onayı + barkod atama)
+ *     sendToProduction()     APPROVED → IN_PRODUCTION
+ *     logProduction()        Depo girişi (storedQty arttırır, COMPLETED set eder)
+ *     updateProductStages()  Üretim aşama miktarlarını günceller (foam/upholstery/assembly/packaged)
+ *
+ * NetSim Entegrasyonu:
+ *   marketingApproveProduct() ve sendToProduction() içinde
+ *   NetSimClient aracılığıyla ERP'ye termin tarihi yazılır.
+ *   Hata olursa işlem iptal olmaz, sadece log yazılır.
+ *
+ * AuditLog: Her kritik işlem shared.ts'teki createAuditLog() ile kaydedilir.
+ */
+
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
@@ -10,6 +31,13 @@ import path from "path";
 import { createAuditLog } from "./shared";
 import { netSimClient } from "@/lib/netsim-client";
 
+/**
+ * createProduct — Manuel iş emri oluşturucu.
+ * FormData için: name, model, company (Order), quantity, terminDate, systemCode,
+ *   material, description, image (File), catalogProductId, footType vb. konfig alanları.
+ * Resim public/ klasörüne {systemCode}.png olarak kaydedilir.
+ * Yeni ürün varsayılan olarak "PENDING" statsüsuyla oluşturulur.
+ */
 export async function createProduct(formData: FormData) {
     const session = await auth();
     if (!session || !["ADMIN", "PLANNER", "MARKETER"].includes((session.user as any).role)) {
@@ -258,6 +286,11 @@ export async function updateProduct(id: number, formData: FormData) {
     }
 }
 
+/**
+ * approveProduct — Admin'in ürünü ilk onaylaması.
+ * PENDING → MARKETING_REVIEW (barkod henüz atanmaz)
+ * Pazarlamaya gönderir; pazarlama da onaylarsa barkod atanarak APPROVED olur.
+ */
 export async function approveProduct(id: number) {
     const session = await auth();
     if (!session || !session.user || (session.user as any).role !== "ADMIN") return { error: "Yetkisiz iÅŸlem" };
@@ -563,6 +596,16 @@ export async function bulkSendToApproval(productIds: number[]) {
     }
 }
 
+/**
+ * logProduction — Barkod tarama ile depo girişi.
+ * Depo sayfasından çağrılır (barcode-scanner veya manual entry).
+ * İş Kuralı: produced + quantity > quantity ise hata döner.
+ * 3-work-unit transaction:
+ *   1. ProductionLog kaydı oluştur
+ *   2. Product.produced ve status güncelle
+ *   3. Inventory upsert (raf bazlı stok kaydet)
+ * OCC Check: lastUpdatedAt ile ezelzaman kontrolü yapılır (aynı anda 2 kullanıcı için).
+ */
 // Fix logProduction to remove shelf column usage
 export async function logProduction(barcode: string, quantity: number, shelf: string, lastUpdatedAt?: Date) {
     const session = await auth();

@@ -458,16 +458,19 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
     // Üretimdeki ürünler (IN_PRODUCTION statüsü veya herhangi bir aşamada ilerleme var)
     const inProductionProducts = useMemo(() => {
         let list = products.filter(p => {
-            // Depodaki miktar ile Sevk edilen miktarın toplamı, sipariş miktarını doğruluyorsa bu ürün üretilmiş/bitmiştir.
+            // Tamamen depoya veya sevke giden toplam miktar
             const totalFinished = (p.storedQty ?? 0) + (p.shippedQty ?? 0);
+            
+            // Eğer ürünün BÜTÜN miktarı depoda veya sevk edildiyse, Üretim'de gözükmesin!
             if (totalFinished >= p.quantity) return false;
 
-            // Eğer depoda bir miktar varsa ve status IN_PRODUCTION değilse gösterme (örn status COMPLETED)
-            if (p.status === 'COMPLETED') return false;
+            // Eğer en az 1 adedi bile depoya girmediyse veya sevk edilmediyse (hala üretilmeyi bekleyen kısmı varsa), 
+            // ve statüsü IN_PRODUCTION ise VEYA herhangi bir üretim sürecinde işlem gördüyse (hatta partially stored ise)
+            // Üretimde sayılır.
+            const hasStartedAnyStage = (p.foamQty ?? 0) + (p.upholsteryQty ?? 0) + (p.assemblyQty ?? 0) + (p.packagedQty ?? 0) > 0;
+            const hasRemainingToProduce = totalFinished < p.quantity;
 
-            // Üretimde olan: IN_PRODUCTION statüsü YA DA herhangi bir üretim aşaması verisi var (bitenler hariç)
-            const hasStageData = (p.foamQty ?? 0) + (p.upholsteryQty ?? 0) + (p.assemblyQty ?? 0) + (p.packagedQty ?? 0) > 0;
-            return p.status === 'IN_PRODUCTION' || hasStageData;
+            return hasRemainingToProduce && (p.status === 'IN_PRODUCTION' || hasStartedAnyStage || totalFinished > 0);
         });
         if (filterSearch) {
             const s = filterSearch.toLowerCase();
@@ -933,190 +936,7 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
         <div className="space-y-4">
             {/* Üst Bilgi ve Kontroller */}
 
-            {/* Takvim Görünümü - Üstte Sabit */}
-            <Card>
-                <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <CalendarIcon className="h-5 w-5 text-blue-600" />
-                            <CardTitle className="text-lg">Üretim Takvimi</CardTitle>
-                            <div className="flex items-center gap-1 border rounded-md">
-                                <Button
-                                    variant={calendarView === 'week' ? 'default' : 'ghost'}
-                                    size="sm"
-                                    onClick={() => setCalendarView('week')}
-                                    className="h-8"
-                                >
-                                    Haftalık
-                                </Button>
-                                <Button
-                                    variant={calendarView === 'month' ? 'default' : 'ghost'}
-                                    size="sm"
-                                    onClick={() => setCalendarView('month')}
-                                    className="h-8"
-                                >
-                                    Aylık
-                                </Button>
-                            </div>
-                            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-                                <Button
-                                    variant={dateViewMode === 'termin' ? 'default' : 'ghost'}
-                                    size="sm"
-                                    className={`h-8 text-xs ${dateViewMode === 'termin' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
-                                    onClick={() => setDateViewMode('termin')}
-                                >
-                                    <Calendar className="h-3.5 w-3.5 mr-1" />
-                                    Termin
-                                </Button>
-                                <Button
-                                    variant={dateViewMode === 'production' ? 'default' : 'ghost'}
-                                    size="sm"
-                                    className={`h-8 text-xs ${dateViewMode === 'production' ? 'bg-purple-600 hover:bg-purple-700' : ''}`}
-                                    onClick={() => setDateViewMode('production')}
-                                >
-                                    <Wrench className="h-3.5 w-3.5 mr-1" />
-                                    Üretim
-                                </Button>
-                            </div>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={goToPrevious}
-                            >
-                                <ChevronLeft className="h-4 w-4" />
-                            </Button>
-                            <span className="text-lg font-semibold min-w-[200px] text-center">
-                                {calendarView === 'week'
-                                    ? `${format(calendarStart, "dd MMM", { locale: tr })} - ${format(calendarEnd, "dd MMM yyyy", { locale: tr })}`
-                                    : format(currentDate, "MMMM yyyy", { locale: tr })
-                                }
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={goToNext}
-                            >
-                                <ChevronRight className="h-4 w-4" />
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setCurrentDate(new Date())}
-                            >
-                                Bugün
-                            </Button>
-                        </div>
-                        {selectedProductIds.length > 0 && (
-                            <Badge className="bg-green-600 text-white">
-                                {selectedProductIds.length} seçili
-                            </Badge>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    {/* Takvim Grid */}
-                    <div className="grid grid-cols-7 gap-2">
-                        {/* Hafta Günleri */}
-                        {weekDays.map(day => (
-                            <div key={day} className="text-center font-semibold text-sm text-slate-600 py-2">
-                                {day}
-                            </div>
-                        ))}
 
-                        {/* Takvim Günleri */}
-                        {calendarDays.map(day => {
-                            const dateKey = format(day, 'yyyy-MM-dd');
-                            const dayProducts = productsByDate[dateKey] || [];
-                            const isCurrentMonth = isSameMonth(day, currentDate);
-                            const isTodayDate = isToday(day);
-
-                            return (
-                                <div
-                                    key={day.toISOString()}
-                                    className={`
-                                        min-h-[120px] border rounded-lg p-2
-                                        ${!isCurrentMonth ? 'bg-slate-50 text-slate-400' : 'bg-white'}
-                                        ${isTodayDate ? 'border-blue-500 border-2 bg-blue-50' : 'border-slate-200'}
-                                    `}
-                                >
-                                    <div className={`text-sm font-semibold mb-1 ${isTodayDate ? 'text-blue-600' : ''}`}>
-                                        {format(day, 'd')}
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        {dayProducts.map(product => {
-                                            const isSelected = selectedProductIds.includes(product.id);
-                                            // AI NOTE: Scheduling Logic
-                                            // Sevk durumunu kontrol et
-                                            const isShipped = (product.shippedQty || 0) >= product.quantity;
-                                            const hasProductionDate = !!product.productionDate;
-                                            const isScheduledDay = hasProductionDate && isSameDay(new Date(product.productionDate!), day);
-                                            const isTerminDay = product.terminDate && isSameDay(new Date(product.terminDate), day);
-
-                                            return (
-                                                <div
-                                                    key={product.id}
-                                                    className={`
-                                                        text-xs p-1.5 rounded transition-all group relative border-l-2
-                                                        ${isSelected ? 'bg-blue-500 text-white border-blue-700' :
-                                                            isShipped
-                                                                ? 'bg-teal-50 border-teal-500 opacity-60 cursor-not-allowed' // Sevk Edilmiş - Devre Dışı
-                                                                : isScheduledDay
-                                                                    ? 'bg-green-50 hover:bg-green-100 border-green-500 cursor-pointer' // Planlanmış (Üretim Tarihi)
-                                                                    : 'bg-slate-50 hover:bg-slate-100 border-amber-400 cursor-pointer' // Planlanmamış (Termin Tarihi)
-                                                        }
-                                                    `}
-                                                    onClick={() => {
-                                                        if (isShipped) return; // Sevk edilmişlere tıklanmasın
-                                                        if (isSelected) {
-                                                            setSelectedProductIds(selectedProductIds.filter(id => id !== product.id));
-                                                        } else {
-                                                            setSelectedProductIds([...selectedProductIds, product.id]);
-                                                        }
-                                                    }}
-                                                    onDoubleClick={(e) => {
-                                                        if (isShipped) return; // Sevk edilmişlere çift tıklanmasın
-                                                        e.stopPropagation();
-                                                        handleEditProduct(product);
-                                                    }}
-                                                >
-                                                    <div className="font-medium truncate">{product.name}</div>
-                                                    <div className="text-[10px] opacity-80 flex items-center gap-1">
-                                                        {isShipped ? (
-                                                            <span title="Sevk Edildi">✅</span>
-                                                        ) : isScheduledDay ? (
-                                                            <span title="Üretim Planlandı">📅</span>
-                                                        ) : (
-                                                            <span title="Termin Tarihi (Planlanmamış)">⚠️</span>
-                                                        )}
-                                                        {product.quantity} adet
-                                                    </div>
-                                                    {product.master && (
-                                                        <div className="text-[10px] opacity-80 truncate">
-                                                            {product.master}
-                                                        </div>
-                                                    )}
-                                                    {userRole === "ADMIN" && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleEditProduct(product);
-                                                            }}
-                                                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-0.5 bg-white rounded hover:bg-blue-100"
-                                                        >
-                                                            <Edit className="h-3 w-3 text-blue-600" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </CardContent>
-            </Card>
 
             {/* Filtreler */}
             <Card className="border-slate-200 bg-white shadow-sm">
@@ -2715,7 +2535,7 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                 open={isSemiFinishedDialogOpen}
                 onOpenChange={setIsSemiFinishedDialogOpen}
                 selectedProductIds={selectedProductIds}
-                products={filteredProducts}
+                products={products}
                 onSuccess={() => {
                     setSelectedProductIds([]);
                     router.refresh();

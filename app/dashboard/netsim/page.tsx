@@ -78,6 +78,7 @@ interface NetSimOrder {
   DURUM: string | null;
   CARI_NO: number;
   CARI_UNVANI?: string;
+  TOPLAM_HAM_TUTAR: number;
   GENEL_TOPLAM: number;
   DOVIZ_BIRIMI: string;
   ONAYLANDI: string;
@@ -872,7 +873,9 @@ export default function NetSimPage() {
                 <TableHead>Tarih</TableHead>
                 <TableHead>Teslim</TableHead>
                 <TableHead>Durum</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
+                <TableHead className="text-right">Liste Tutar</TableHead>
+                <TableHead className="text-right">Uygulanan</TableHead>
+                <TableHead className="text-right">İskonto</TableHead>
                 <TableHead className="w-24">Islemler</TableHead>
               </TableRow>
             </TableHeader>
@@ -925,7 +928,19 @@ export default function NetSimPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-medium">
+                    {order.TOPLAM_HAM_TUTAR > order.GENEL_TOPLAM ? formatCurrency(order.TOPLAM_HAM_TUTAR, order.DOVIZ_BIRIMI) : "-"}
+                  </TableCell>
+                  <TableCell className="text-right font-medium text-emerald-700">
                     {formatCurrency(order.GENEL_TOPLAM, order.DOVIZ_BIRIMI)}
+                  </TableCell>
+                  <TableCell className="text-right font-bold text-red-600">
+                    {(() => {
+                      if (order.TOPLAM_HAM_TUTAR > 0 && order.GENEL_TOPLAM < order.TOPLAM_HAM_TUTAR) {
+                        const discount = ((order.TOPLAM_HAM_TUTAR - order.GENEL_TOPLAM) / order.TOPLAM_HAM_TUTAR) * 100;
+                        return `%${discount.toFixed(2)}`;
+                      }
+                      return "-";
+                    })()}
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
@@ -992,6 +1007,9 @@ export default function NetSimPage() {
                                   <TableHead className="text-right">
                                     Toplam
                                   </TableHead>
+                                  <TableHead className="text-right">
+                                    İskonto
+                                  </TableHead>
                                   <TableHead>Açıklama 1</TableHead>
                                   <TableHead>Açıklama 2</TableHead>
                                   <TableHead>Açıklama 3</TableHead>
@@ -1010,8 +1028,19 @@ export default function NetSimPage() {
                                     <TableCell className="text-right">
                                       {formatCurrency(detail.BIRIM_FIYAT)}
                                     </TableCell>
-                                    <TableCell className="text-right">
+                                    <TableCell className="text-right font-medium text-emerald-700">
                                       {formatCurrency(detail.SATIR_TOPLAMI)}
+                                    </TableCell>
+                                    <TableCell className="text-right font-bold text-red-600">
+                                      {(() => {
+                                        const listTotal = detail.BIRIM_FIYAT * detail.MIKTAR;
+                                        const appliedTotal = detail.SATIR_TOPLAMI;
+                                        if (listTotal > 0 && appliedTotal < listTotal) {
+                                          const discount = ((listTotal - appliedTotal) / listTotal) * 100;
+                                          return `%${discount.toFixed(2)}`;
+                                        }
+                                        return "-";
+                                      })()}
                                     </TableCell>
                                     <TableCell className="max-w-[150px] truncate" title={detail.ACIKLAMA1 || ""}>
                                       {detail.ACIKLAMA1 || "-"}
