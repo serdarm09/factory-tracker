@@ -12,7 +12,7 @@ export default async function AhsapBoyaProductionPage() {
     const role = (session.user as any).role;
     const userId = parseInt((session.user as any).id);
     // Ahşap Boya sayfasını görebilecek roller
-    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "AHSAP_BOYA"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "AHSAP_BOYA", "VIEWER"].includes(role)) {
         redirect("/dashboard");
     }
 

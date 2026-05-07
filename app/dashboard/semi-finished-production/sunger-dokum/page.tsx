@@ -11,7 +11,7 @@ export default async function SungerDokumProductionPage() {
 
     const role = (session.user as any).role;
     const userId = parseInt((session.user as any).id);
-    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "SUNGER_DOKUM"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "SUNGER_DOKUM", "VIEWER"].includes(role)) {
         redirect("/dashboard");
     }
 

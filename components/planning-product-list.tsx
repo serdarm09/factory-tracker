@@ -72,6 +72,9 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
     const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
 
     const [exportLoading, setExportLoading] = useState(false);
+    const [exportDateFrom, setExportDateFrom] = useState<string>("");
+    const [exportDateTo, setExportDateTo] = useState<string>("");
+    const [exportStatus, setExportStatus] = useState<string>("all");
     const [cloneLoading, setCloneLoading] = useState<number | null>(null);
     const [sendingToApproval, setSendingToApproval] = useState<number | null>(null);
     const [sendingToProduction, setSendingToProduction] = useState<number | null>(null);
@@ -291,51 +294,93 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
         setExportLoading(true);
         try {
             const allProducts: any[] = [];
-            // Basic export of all currently loaded data (ignoring tab, or all?)
-            // Usually export all consistent with filters, ignoring tabs for now or just 'all'
-            const { filteredOrdersList, filteredLegacy } = getFilteredData('all');
+
+            // Yerel tarihi YYYY-MM-DD string olarak döndürür (timezone bağımsız)
+            const toLocalStr = (d: Date) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
+
+            const passesFilter = (p: any) => {
+                if (exportStatus !== "all" && p.status !== exportStatus) return false;
+                if (exportDateFrom || exportDateTo) {
+                    const refDate = p.orderDate ? new Date(p.orderDate) : null;
+                    if (!refDate) return false;
+                    const refStr = toLocalStr(refDate);
+                    if (exportDateFrom && refStr < exportDateFrom) return false;
+                    if (exportDateTo && refStr > exportDateTo) return false;
+                }
+                return true;
+            };
+
+            const getShipmentDate = (p: any): string => {
+                if (!p.shipmentItems || p.shipmentItems.length === 0) return '-';
+                const shipped = p.shipmentItems
+                    .map((si: any) => si.shipment?.exitDate)
+                    .filter(Boolean)
+                    .sort((a: any, b: any) => new Date(b).getTime() - new Date(a).getTime());
+                return shipped.length > 0 ? new Date(shipped[0]).toLocaleDateString('tr-TR') : '-';
+            };
 
             const processProduct = (p: any, orderName: string) => ({
-                "Sipariş": orderName,
-                "Firma": p.order?.company || p.company || '-',
-                "Model": p.model,
+                "Sipariş No": orderName,
+                "Cari Adı": p.order?.company || p.company || '-',
                 "Ürün Adı": p.name,
+                "Model": p.model,
                 "Atanan Usta": p.master || '-',
                 "Sipariş Tarihi": p.orderDate ? new Date(p.orderDate).toLocaleDateString('tr-TR') : '-',
                 "Termin Tarihi": p.terminDate ? new Date(p.terminDate).toLocaleDateString('tr-TR') : '-',
+                "Depoya Giriş Tarihi": p.storedDate ? new Date(p.storedDate).toLocaleDateString('tr-TR') : '-',
+                "Sevk Tarihi": getShipmentDate(p),
+                "Sipariş Adedi": p.quantity,
+                "Depo Adedi": p.storedQty,
+                "Sevk Adedi": p.shippedQty,
+                "Birim Fiyat": p.unitPrice || '-',
+                "İskonto Oranı (%)": '-',
+                "İskontosuz Fiyat": '-',
+                "Toplam Fiyat": p.totalPrice || '-',
+                "Durum": translateStatus(p.status),
                 "Renk/DST": p.dstAdi || '-',
+                "Malzeme": p.material || '-',
                 "NetSim Açıklama 1": p.aciklama1 || '-',
                 "NetSim Açıklama 2": p.aciklama2 || '-',
                 "NetSim Açıklama 3": p.aciklama3 || '-',
                 "NetSim Açıklama 4": p.aciklama4 || '-',
-                "Malzeme": p.material || '-',
-                "Adet": p.quantity,
-                "Birim Fiyat": p.unitPrice,
-                "Toplam Fiyat": p.totalPrice,
-                "Durum": translateStatus(p.status),
-                "Sünger": p.foamQty,
-                "Döşeme": p.upholsteryQty,
-                "Montaj": p.assemblyQty,
-                "Paket": p.packagedQty,
-                "Depo": p.storedQty,
-                "Sevk": p.shippedQty,
                 "Açıklama": p.description || '-'
             });
 
-            filteredOrdersList.forEach(order => {
-                order.products.forEach((p: any) => {
+            // Direkt ham veriden filtrele, sayfa filtrelerine bağımlı değil
+            orders.forEach(order => {
+                order.products.filter(passesFilter).forEach((p: any) => {
                     allProducts.push(processProduct(p, order.name));
                 });
             });
-            filteredLegacy.forEach(p => {
+            legacyProducts.filter(passesFilter).forEach(p => {
                 allProducts.push(processProduct(p, "Siparişsiz / Eski"));
             });
+
+            console.log('[Export Debug]', {
+                totalOrders: orders.length,
+                totalLegacy: legacyProducts.length,
+                exportStatus,
+                exportDateFrom,
+                exportDateTo,
+                matchingProducts: allProducts.length,
+                sampleStatuses: orders.flatMap(o => o.products).slice(0, 5).map((p: any) => ({ status: p.status, orderDate: p.orderDate }))
+            });
+
+            if (allProducts.length === 0) {
+                toast.warning("Filtre kriterlerine uyan ürün bulunamadı");
+                return;
+            }
 
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.json_to_sheet(allProducts);
             XLSX.utils.book_append_sheet(wb, ws, "Planlama Listesi");
             XLSX.writeFile(wb, `Planlama_Listesi_${new Date().toISOString().split('T')[0]}.xlsx`);
-            toast.success("Excel'e aktarıldı");
+            toast.success(`${allProducts.length} ürün Excel'e aktarıldı`);
         } catch (error) {
             toast.error("Excel hatası");
         } finally {
@@ -645,8 +690,44 @@ export function PlanningProductList({ orders, legacyProducts, userRole }: Planni
                 </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-                <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading} className="gap-2 bg-green-50 text-green-700 hover:bg-green-100">
+            <div className="flex items-center justify-end gap-2 flex-wrap">
+                <div className="flex items-center gap-2 border rounded-lg px-3 py-1.5 bg-white shadow-sm">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap font-medium">İndir için filtre:</span>
+                    <Input
+                        type="date"
+                        value={exportDateFrom}
+                        onChange={(e) => setExportDateFrom(e.target.value)}
+                        className="h-7 text-xs w-32 border-slate-200"
+                    />
+                    <span className="text-xs text-muted-foreground">-</span>
+                    <Input
+                        type="date"
+                        value={exportDateTo}
+                        onChange={(e) => setExportDateTo(e.target.value)}
+                        className="h-7 text-xs w-32 border-slate-200"
+                    />
+                    <Select value={exportStatus} onValueChange={setExportStatus}>
+                        <SelectTrigger className="h-7 text-xs w-36 border-slate-200">
+                            <SelectValue placeholder="Durum" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Tüm Durumlar</SelectItem>
+                            <SelectItem value="APPROVED">Onaylandı</SelectItem>
+                            <SelectItem value="IN_PRODUCTION">Üretimde</SelectItem>
+                            <SelectItem value="COMPLETED">Tamamlandı</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    {(exportDateFrom || exportDateTo || exportStatus !== "all") && (
+                        <button
+                            onClick={() => { setExportDateFrom(""); setExportDateTo(""); setExportStatus("all"); }}
+                            className="text-slate-400 hover:text-slate-600"
+                            title="Temizle"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    )}
+                </div>
+                <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading} className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200">
                     {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Excel İndir
                 </Button>
             </div>

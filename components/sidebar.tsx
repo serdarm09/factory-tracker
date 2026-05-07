@@ -73,10 +73,10 @@ export async function Sidebar() {
      */
     const links = [
         { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "MARKETER", "YARİMAMUL"], shortcut: "D" },
-        { name: "NetSim Siparisler", href: "/dashboard/netsim", icon: Database, roles: ["ADMIN", "PLANNER"], shortcut: "N" },
+        { name: "NetSim Siparisler", href: "/dashboard/netsim", icon: Database, roles: ["ADMIN", "PLANNER", "VIEWER"], shortcut: "N" },
         { name: "Siparis Planlama", href: "/dashboard/planning", icon: CalendarDays, roles: ["ADMIN", "PLANNER"], shortcut: "P" },
         { name: "Uretim", href: "/dashboard/production-planning", icon: Wrench, roles: ["ADMIN", "PLANNER", "KALITE"], shortcut: "E" },
-        { name: "Uretim Takvimi", href: "/dashboard/production-calendar", icon: Calendar, roles: ["ADMIN"], shortcut: "K" },
+        { name: "Uretim Takvimi", href: "/dashboard/production-calendar", icon: Calendar, roles: ["ADMIN", "VIEWER"], shortcut: "K" },
         // Yarı Mamül burada submenu olarak eklenecek
         {
             name: "Onaylar",
@@ -90,7 +90,7 @@ export async function Sidebar() {
         { name: "Hammadde Depo", href: "/dashboard/raw-materials", icon: Layers, roles: ["ADMIN", "RAW_MATERIAL", "VIEWER"], shortcut: "H" },
         { name: "Satın Alma", href: "/dashboard/purchases", icon: PackageSearch, roles: ["ADMIN", "PURCHASING", "VIEWER"] },
         { name: "Mamül Depo Listesi", href: "/dashboard/warehouse", icon: Boxes, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "WAREHOUSE"], shortcut: "W" },
-        { name: "Sevk Edilenler", href: "/dashboard/shipped", icon: Truck, roles: ["ADMIN", "MARKETER", "WAREHOUSE", "WORKER"], shortcut: "T" },
+        { name: "Sevk Edilenler", href: "/dashboard/shipped", icon: Truck, roles: ["ADMIN", "MARKETER", "WAREHOUSE", "WORKER", "VIEWER"], shortcut: "T" },
         { name: "Urun girisi", href: "/dashboard/production", icon: Package, roles: ["ADMIN", "WAREHOUSE"], shortcut: "U" },
         { name: "Kullanicilar", href: "/dashboard/admin/users", icon: Users, roles: ["ADMIN"] },
         { name: "Katalog", href: "/dashboard/admin/catalog", icon: ClipboardList, roles: ["ADMIN", "PLANNER"] },

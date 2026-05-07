@@ -28,8 +28,8 @@ export default async function MarketingPage() {
         orderBy: { createdAt: "desc" }
     });
 
-    // Onaylanmış ürünleri getir (APPROVED durumunda olanlar - üretime geçmiş)
-    const approvedProducts = await prisma.product.findMany({
+    // Onaylanmış ürünleri getir (APPROVED durumunda olanlar - üretime geçmemiş olanlar)
+    const approvedProductsRaw = await prisma.product.findMany({
         where: {
             status: "APPROVED"
         },
@@ -42,10 +42,19 @@ export default async function MarketingPage() {
         orderBy: { createdAt: "desc" }
     });
 
+    const approvedProducts = approvedProductsRaw.filter(p => {
+        const stored = p.storedQty || 0;
+        const shipped = p.shippedQty || 0;
+        const produced = p.produced || 0;
+        // Üretime geçmemiş olması için depo, sevk ve üretim adetlerinin sıfır olması gerekir
+        return stored === 0 && shipped === 0 && produced === 0;
+    });
+
     // Üretimde olan ürünleri getir (manuel eklenen yarı mamül ürünleri hariç tut)
-    const inProductionProducts = await prisma.product.findMany({
+    // Kısmi olarak depoya girmiş olanlar (COMPLETED) ama tamamlanmamış olanları da dahil et
+    const rawInProduction = await prisma.product.findMany({
         where: {
-            status: "IN_PRODUCTION",
+            status: { in: ["IN_PRODUCTION", "COMPLETED"] },
             NOT: {
                 sku: {
                     startsWith: "MANUAL-"
@@ -56,15 +65,51 @@ export default async function MarketingPage() {
             order: true,
             creator: {
                 select: { username: true }
+            },
+            inventory: true,
+            shipmentItems: {
+                include: { shipment: true }
             }
         },
         orderBy: { createdAt: "desc" }
     });
 
-    // Depoda olan ürünleri getir (COMPLETED durumunda olanlar)
+    const inProductionProducts = rawInProduction.map(p => {
+        const totalShipped = Math.max(
+            p.shippedQty || 0,
+            p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0)
+        );
+        const totalInInventory = Math.max(
+            p.storedQty || 0,
+            p.inventory.reduce((sum, inv) => sum + inv.quantity, 0)
+        );
+        let displayStatus = p.status;
+        const total = totalInInventory + totalShipped;
+        if (total >= p.quantity) {
+            displayStatus = "COMPLETED";
+        } else if (total > 0 && displayStatus === "APPROVED") {
+            displayStatus = "IN_PRODUCTION";
+        }
+
+        return {
+            ...p,
+            status: displayStatus,
+            shipped: totalShipped,
+            inStock: totalInInventory,
+            storedQty: totalInInventory
+        };
+    }).filter(p => {
+        if ((p.inStock + p.shipped) >= p.quantity) return false;
+        if (p.status === "SHIPPED") return false;
+        return true;
+    });
+
+    // Depoda olan ürünleri getir (Depoda stoğu bulunanlar)
     const completedProducts = await prisma.product.findMany({
         where: {
-            status: "COMPLETED"
+            storedQty: { gt: 0 },
+            status: { not: "SHIPPED" },
+            NOT: { sku: { startsWith: "MANUAL-" } }
         },
         include: {
             order: true,
@@ -76,13 +121,21 @@ export default async function MarketingPage() {
         orderBy: { createdAt: "desc" }
     });
 
-    // Add shipped quantity to completed products
+    // Add shipped quantity and available quantity directly from product fields
     const completedWithShipped = completedProducts.map(p => {
-        const shipped = p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0);
+        let displayStatus = p.status;
+        const total = (p.storedQty || 0) + (p.shippedQty || 0);
+        if (total >= p.quantity) {
+            displayStatus = "COMPLETED";
+        } else if (total > 0 && displayStatus === "APPROVED") {
+            displayStatus = "IN_PRODUCTION";
+        }
+
         return {
             ...p,
-            shipped,
-            available: p.produced - shipped
+            status: displayStatus,
+            shipped: p.shippedQty || 0,
+            available: p.storedQty || 0
         };
     });
 

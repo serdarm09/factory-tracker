@@ -645,11 +645,12 @@ export async function logProduction(barcode: string, quantity: number, shelf: st
                     userId: userId
                 }
             }),
-            // 2. Update Product totals (Shelf column is gone, so do not update it)
+            // 2. Update Product totals
             prisma.product.update({
                 where: { id: product.id },
                 data: {
                     produced: newProduced,
+                    storedQty: { increment: quantity },
                     status: newStatus,
                 }
             }),

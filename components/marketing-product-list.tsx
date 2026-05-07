@@ -214,35 +214,51 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
         try {
             let exportData;
 
-            if (activeTab === "shipped") {
-                exportData = filteredProducts.map(p => ({
-                    "Ürün Kodu": p.systemCode || '',
-                    "Ürün Adı": p.name || '',
-                    "Model": p.model || '',
-                    "Firma": p.order?.company || '',
-                    "Planlanan Adet": p.quantity,
-                    "Sevk Adedi": p.shippedQty || 0,
-                    "Sevkiyat Bilgisi": p.shipmentItems && p.shipmentItems.length > 0 ?
-                        p.shipmentItems.map((item: any) => `${item.shipment.company || 'Belirtilmedi'}`).join(', ') :
-                        'Kayıt yok',
+            exportData = filteredProducts.map(p => {
+                const baseData = {
+                    "Ürün Kodu / Sistem Kodu": p.systemCode || '',
                     "Barkod": p.barcode || '',
-                }));
-            } else {
-                exportData = filteredProducts.map(p => ({
-                    "Ürün Kodu": p.systemCode || '',
+                    "Sipariş No / Adı": p.order?.name || '',
+                    "Firma / Müşteri": p.order?.company || '',
                     "Ürün Adı": p.name || '',
-                    "Model": p.model || '',
-                    "Firma": p.order?.company || '',
-                    "Adet": p.quantity,
-                    "Üretilen": p.produced || 0,
-                    "Sevk Edilen": p.shipped || 0,
-                    "Kalan": p.available || (p.produced - (p.shipped || 0)),
+                    "Model / Stok Kodu": p.model || p.sku || '',
+                    "Kumaş / DST Adı": p.dstAdi || p.fabricType || '',
+                    "Planlanan Adet": p.quantity || 0,
+                    "Üretilen Adet": p.produced || 0,
+                    "Depodaki Adet": p.storedQty || 0,
+                    "Sevk Edilen Adet": p.shippedQty || 0,
+                    "Birim": p.unit || 'Adet',
+                    "Sipariş Tarihi": p.orderDate ? new Date(p.orderDate).toLocaleDateString('tr-TR') : '',
                     "Termin Tarihi": p.terminDate ? new Date(p.terminDate).toLocaleDateString('tr-TR') : '',
+                    "Üretim Tarihi": p.productionDate ? new Date(p.productionDate).toLocaleDateString('tr-TR') : '',
                     "Durum": translateStatus(p.status),
+                    "Alt Durum": p.subStatus || '',
+                    "Usta / Sorumlu": p.master || '',
                     "Malzeme": p.material || '',
-                    "Barkod": p.barcode || '',
-                }));
-            }
+                    "Not / Açıklama": p.description || '',
+                    "Pazarlama Notu": p.marketingDescription || '',
+                    "Üretim Notu": p.engineerNote || '',
+                    "Ayak Tipi": p.footType || '',
+                    "Ayak Malzemesi": p.footMaterial || '',
+                    "Kol Tipi": p.armType || '',
+                    "Sırt Tipi": p.backType || '',
+                    "Açıklama 1": p.aciklama1 || '',
+                    "Açıklama 2": p.aciklama2 || '',
+                    "Açıklama 3": p.aciklama3 || '',
+                    "Açıklama 4": p.aciklama4 || '',
+                };
+
+                if (activeTab === "shipped") {
+                    return {
+                        ...baseData,
+                        "Sevkiyat Bilgisi": p.shipmentItems && p.shipmentItems.length > 0 ?
+                            p.shipmentItems.map((item: any) => `${item.shipment.company || 'Belirtilmedi'} (${item.quantity} adet)`).join(' | ') :
+                            'Kayıt yok',
+                    };
+                }
+
+                return baseData;
+            });
 
             const sheetName = activeTab === "approved" ? "Onaylananlar" :
                 activeTab === "inProduction" ? "Üretimde" :
@@ -535,6 +551,7 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                 <TableHead>Ürün</TableHead>
                                 <TableHead>Firma</TableHead>
                                 <TableHead>Adet</TableHead>
+                                {(activeTab === "completed" || activeTab === "inProduction") && <TableHead>Depodaki</TableHead>}
                                 {activeTab === "shipped" && <TableHead>Sevk Adedi</TableHead>}
                                 {activeTab === "shipped" && <TableHead>Sevkiyat Bilgileri</TableHead>}
                                 {activeTab !== "shipped" && <TableHead>Termin</TableHead>}
@@ -545,7 +562,7 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                         <TableBody>
                             {paginatedProducts.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={activeTab === "shipped" ? 8 : activeTab === "marketingReview" ? 7 : 6} className="text-center py-8 text-slate-500">
+                                    <TableCell colSpan={activeTab === "shipped" ? 8 : activeTab === "marketingReview" ? 7 : (activeTab === "inProduction" || activeTab === "completed" ? 7 : 6)} className="text-center py-8 text-slate-500">
                                         {hasActiveFilters
                                             ? "Filtrelere uygun ürün bulunamadı"
                                             : activeTab === "marketingReview"
@@ -580,6 +597,11 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                         </TableCell>
                                         <TableCell>{p.order?.company || '-'}</TableCell>
                                         <TableCell className="font-bold">{p.quantity}</TableCell>
+                                {(activeTab === "completed" || activeTab === "inProduction") && (
+                                            <TableCell>
+                                                <span className="font-bold text-green-600">{p.storedQty || 0}</span>
+                                            </TableCell>
+                                        )}
                                         {activeTab === "shipped" && (
                                             <TableCell>
                                                 <span className="font-bold text-orange-600">{p.shippedQty || 0}</span>
@@ -745,7 +767,9 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                     <Detail label="Firma / Müşteri" value={viewProduct.order?.company || viewProduct.company} />
                                     <Detail label="Sipariş Adı" value={viewProduct.order?.name} />
                                     <Detail label="Planlanan Adet" value={viewProduct.quantity} />
-                                    <Detail label="Üretilen / Stok" value={viewProduct.produced} />
+                                    <Detail label="Üretilen" value={viewProduct.produced || 0} />
+                                    <Detail label="Depodaki" value={viewProduct.storedQty || 0} />
+                                    <Detail label="Sevk Edilen" value={viewProduct.shippedQty || 0} />
                                     <Detail label="Durum" value={translateStatus(viewProduct.status)} />
                                     <Detail label="Barkod" value={viewProduct.barcode || '-'} />
                                     <Detail label="Malzeme" value={viewProduct.material} />

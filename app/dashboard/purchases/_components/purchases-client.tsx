@@ -334,7 +334,7 @@ export default function PurchasesClient({
                     <div className="text-sm font-medium text-blue-600 line-clamp-2">
                         {req.items.map((i: any) => i.rawMaterial.name).join(", ")}
                     </div>
-                    {req.notes && <div className="mt-1 text-xs text-slate-500 italic truncate">Not: {req.notes}</div>}
+                    {req.notes && <div className="mt-1 text-xs text-slate-500 italic whitespace-pre-wrap line-clamp-3">Not: {req.notes}</div>}
                     <div className="text-[10px] text-slate-400 mt-1">Detay için tıklayın</div>
                 </TableCell>
             <TableCell>{getStatusBadge(req.status)}</TableCell>

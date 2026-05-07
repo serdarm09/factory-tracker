@@ -10,7 +10,7 @@ export default async function ProductionCalendarPage() {
     if (!session) redirect("/login");
 
     const role = (session.user as any).role;
-    const allowedRoles = ["ADMIN", "PLANNER"];
+    const allowedRoles = ["ADMIN", "PLANNER", "VIEWER"];
     if (!allowedRoles.includes(role)) {
         redirect("/dashboard");
     }

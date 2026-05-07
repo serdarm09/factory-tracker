@@ -17,7 +17,7 @@ export default async function KonfeksiyonProductionPage() {
     const role = (session.user as any).role;
     const userId = parseInt((session.user as any).id);
     // Konfeksiyon sayfasını görebilecek roller
-    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "KONFEKSIYON"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "KONFEKSIYON", "VIEWER"].includes(role)) {
         redirect("/dashboard");
     }
 

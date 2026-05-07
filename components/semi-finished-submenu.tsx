@@ -19,12 +19,12 @@ export function SemiFinishedSubmenu({ userRole }: SemiFinishedSubmenuProps) {
     }
 
     const allSubLinks = [
-        { name: "Metal", href: "/dashboard/semi-finished-production/metal", icon: Wrench, color: "text-slate-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "METAL"] },
-        { name: "Konfeksiyon", href: "/dashboard/semi-finished-production/konfeksiyon", icon: Factory, color: "text-blue-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "KONFEKSIYON"] },
-        { name: "Ahşap Boya", href: "/dashboard/semi-finished-production/ahsap-boya", icon: Paintbrush, color: "text-amber-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_BOYA"] },
-        { name: "Ahşap İskelet", href: "/dashboard/semi-finished-production/ahsap-iskelet", icon: Box, color: "text-brown-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_ISKELET"] },
-        { name: "Plastik", href: "/dashboard/semi-finished-production/plastik", icon: Layers, color: "text-purple-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "PLASTIK"] },
-        { name: "Sünger Döküm", href: "/dashboard/semi-finished-production/sunger-dokum", icon: Droplets, color: "text-cyan-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "SUNGER_DOKUM"] },
+        { name: "Metal", href: "/dashboard/semi-finished-production/metal", icon: Wrench, color: "text-slate-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "METAL", "VIEWER"] },
+        { name: "Konfeksiyon", href: "/dashboard/semi-finished-production/konfeksiyon", icon: Factory, color: "text-blue-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "KONFEKSIYON", "VIEWER"] },
+        { name: "Ahşap Boya", href: "/dashboard/semi-finished-production/ahsap-boya", icon: Paintbrush, color: "text-amber-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_BOYA", "VIEWER"] },
+        { name: "Ahşap İskelet", href: "/dashboard/semi-finished-production/ahsap-iskelet", icon: Box, color: "text-brown-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "AHSAP_ISKELET", "VIEWER"] },
+        { name: "Plastik", href: "/dashboard/semi-finished-production/plastik", icon: Layers, color: "text-purple-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "PLASTIK", "VIEWER"] },
+        { name: "Sünger Döküm", href: "/dashboard/semi-finished-production/sunger-dokum", icon: Droplets, color: "text-cyan-400", roles: ["ADMIN", "PLANNER", "YARİMAMUL", "SUNGER_DOKUM", "VIEWER"] },
     ];
 
     // Kullanıcının görebileceği kategorileri filtrele

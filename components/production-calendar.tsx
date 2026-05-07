@@ -195,6 +195,12 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
     const [filterSearch, setFilterSearch] = useState(""); // Ürün / firma arama
     const [sevkStartDate, setSevkStartDate] = useState(""); // Sevk edilenler tarih filtresi
     const [sevkEndDate, setSevkEndDate] = useState("");
+    const [depoStartDate, setDepoStartDate] = useState(""); // Depoya giriş tarihi filtresi
+    const [depoEndDate, setDepoEndDate] = useState("");
+    const [sevkTarihStart, setSevkTarihStart] = useState(""); // Sevk tarihi aralığı filtresi
+    const [sevkTarihEnd, setSevkTarihEnd] = useState("");
+    const [inprodStartDate, setInprodStartDate] = useState(""); // Üretimdekiler termin tarihi filtresi
+    const [inprodEndDate, setInprodEndDate] = useState("");
     const [shipDialogProduct, setShipDialogProduct] = useState<Product | null>(null);
     const [shipQty, setShipQty] = useState("");
     const [isShipping, setIsShipping] = useState(false);
@@ -401,8 +407,19 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
             });
         }
 
+        // Sevk tarihi aralığı filtresi
+        if (sevkTarihStart || sevkTarihEnd) {
+            list = list.filter(p => {
+                const d = parseDate(p.shippedDate ?? null);
+                if (!d) return false;
+                if (sevkTarihStart && d < parseDate(sevkTarihStart)!) return false;
+                if (sevkTarihEnd && d > parseDate(sevkTarihEnd)!) return false;
+                return true;
+            });
+        }
+
         return list;
-    }, [products, filterSearch, sevkStartDate, sevkEndDate, startDateFilter, endDateFilter]);
+    }, [products, filterSearch, sevkStartDate, sevkEndDate, startDateFilter, endDateFilter, sevkTarihStart, sevkTarihEnd]);
 
     const totalShippedQty = useMemo(() =>
         shippedProducts.reduce((s, p) => s + (p.shippedQty ?? 0), 0),
@@ -435,8 +452,20 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                 p.order?.name?.toLowerCase().includes(s)
             );
         }
+
+        // Depo Giriş Tarihi filtresi
+        if (depoStartDate || depoEndDate) {
+            list = list.filter(p => {
+                const d = parseDate(p.storedDate ?? null);
+                if (!d) return false; // Tarih yoksa gizle (tarihi olanları bekleriz)
+                if (depoStartDate && d < parseDate(depoStartDate)!) return false;
+                if (depoEndDate && d > parseDate(depoEndDate)!) return false;
+                return true;
+            });
+        }
+
         return list;
-    }, [products, filterSearch]);
+    }, [products, filterSearch, depoStartDate, depoEndDate]);
     //inProductionProducts
 
     const totalWarehouseQty = useMemo(() =>
@@ -481,8 +510,19 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                 p.order?.name?.toLowerCase().includes(s)
             );
         }
+        // Termin tarihi aralığı filtresi
+        if (inprodStartDate || inprodEndDate) {
+            list = list.filter(p => {
+                const d = parseDate(p.terminDate);
+                if (!d) return false;
+                if (inprodStartDate && d < parseDate(inprodStartDate)!) return false;
+                if (inprodEndDate && d > parseDate(inprodEndDate)!) return false;
+                return true;
+            });
+        }
+
         return list;
-    }, [products, filterSearch]);
+    }, [products, filterSearch, inprodStartDate, inprodEndDate]);
 
     // Usta bazlı üretim özeti
     const inProductionByMaster = useMemo(() => {
@@ -930,6 +970,102 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
         const fileName = `Secili_Urunler_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.xlsx`;
         XLSX.writeFile(wb, fileName);
         toast.success(`${selectedProducts.length} seçili ürün Excel'e aktarıldı`);
+    };
+
+    // Mamul Depo Excel Export
+    const handleExportWarehouse = () => {
+        const exportData = warehouseProducts.map(product => ({
+            'Ürün Adı': product.name,
+            'Model': product.model,
+            'Sistem Kodu': product.systemCode,
+            'Firma': product.order?.company || '-',
+            'Sipariş Adı': product.order?.name || '-',
+            'Usta': product.master || 'Atanmamış',
+            'Sipariş Adedi': product.quantity,
+            'Depoda Adedi': product.storedQty || 0,
+            'Depo Giriş Tarihi': product.storedDate ? format(new Date(product.storedDate), 'dd/MM/yyyy') : '-',
+            'Termin Tarihi': product.terminDate ? format(new Date(product.terminDate), 'dd/MM/yyyy') : '-',
+            'Sipariş Tarihi': product.orderDate ? format(new Date(product.orderDate), 'dd/MM/yyyy') : '-',
+            'Birim Fiyat (₺)': product.unitPrice ?? 0,
+            'Depo Cirosu (₺)': product.unitPrice ? (product.unitPrice * (product.storedQty ?? 0)) : 0,
+            'Malzeme': product.material || '-',
+            'Ayak Tipi': product.footType || '-',
+            'Ayak Malzeme': product.footMaterial || '-',
+            'Kol Tipi': product.armType || '-',
+            'Sırt Tipi': product.backType || '-',
+            'Kumaş Tipi': product.fabricType || '-',
+            'Açıklama': product.description || '-',
+            'Mühendis Notu': product.engineerNote || '-',
+            'NetSim Açık. 1': product.aciklama1 || '-',
+            'NetSim Açık. 2': product.aciklama2 || '-',
+            'NetSim Açık. 3': product.aciklama3 || '-',
+            'NetSim Açık. 4': product.aciklama4 || '-',
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Mamul Depo');
+
+        const colWidths = [
+            { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 15 },
+            { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 },
+            { wch: 16 }, { wch: 18 },
+            { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+            { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 },
+        ];
+        ws['!cols'] = colWidths;
+
+        const fileName = `Mamul_Depo_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+        toast.success(`${warehouseProducts.length} ürün Mamul Depo raporu olarak Excel'e aktarıldı`);
+    };
+
+    // Sevkiyat Excel Export
+    const handleExportShipped = () => {
+        const exportData = shippedProducts.map(product => ({
+            'Ürün Adı': product.name,
+            'Model': product.model,
+            'Sistem Kodu': product.systemCode,
+            'Firma': product.order?.company || '-',
+            'Sipariş Adı': product.order?.name || '-',
+            'Usta': product.master || 'Atanmamış',
+            'Sipariş Adedi': product.quantity,
+            'Sevk Edilen Adedi': product.shippedQty || 0,
+            'Sevk Tarihi': product.shippedDate ? format(new Date(product.shippedDate), 'dd/MM/yyyy') : '-',
+            'Termin Tarihi': product.terminDate ? format(new Date(product.terminDate), 'dd/MM/yyyy') : '-',
+            'Sipariş Tarihi': product.orderDate ? format(new Date(product.orderDate), 'dd/MM/yyyy') : '-',
+            'Birim Fiyat (₺)': product.unitPrice ?? 0,
+            'Sevkiyat Cirosu (₺)': product.unitPrice ? (product.unitPrice * (product.shippedQty ?? 0)) : 0,
+            'Malzeme': product.material || '-',
+            'Ayak Tipi': product.footType || '-',
+            'Ayak Malzeme': product.footMaterial || '-',
+            'Kol Tipi': product.armType || '-',
+            'Sırt Tipi': product.backType || '-',
+            'Kumaş Tipi': product.fabricType || '-',
+            'Açıklama': product.description || '-',
+            'Mühendis Notu': product.engineerNote || '-',
+            'NetSim Açık. 1': product.aciklama1 || '-',
+            'NetSim Açık. 2': product.aciklama2 || '-',
+            'NetSim Açık. 3': product.aciklama3 || '-',
+            'NetSim Açık. 4': product.aciklama4 || '-',
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Sevkiyat');
+
+        const colWidths = [
+            { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 15 },
+            { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+            { wch: 16 }, { wch: 20 },
+            { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+            { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 },
+        ];
+        ws['!cols'] = colWidths;
+
+        const fileName = `Sevkiyat_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+        toast.success(`${shippedProducts.length} ürün Sevkiyat raporu olarak Excel'e aktarıldı`);
     };
 
     return (
@@ -1548,35 +1684,65 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                                         </Badge>
                                     )}
                                 </div>
-                                {/* Tarih filtresi - sadece admin */}
-                                {userRole === "ADMIN" && (
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-xs text-slate-500">Termin Aralığı:</label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {/* Termin aralığı filtresi */}
+                                    {userRole === "ADMIN" && (
+                                        <div className="flex items-center gap-1.5">
+                                            <label className="text-xs text-slate-500 whitespace-nowrap">Termin:</label>
+                                            <Input
+                                                type="date"
+                                                value={sevkStartDate}
+                                                onChange={(e) => setSevkStartDate(e.target.value)}
+                                                className="h-8 w-[130px] text-sm"
+                                            />
+                                            <span className="text-slate-400 text-sm">—</span>
+                                            <Input
+                                                type="date"
+                                                value={sevkEndDate}
+                                                onChange={(e) => setSevkEndDate(e.target.value)}
+                                                className="h-8 w-[130px] text-sm"
+                                            />
+                                            {(sevkStartDate || sevkEndDate) && (
+                                                <Button variant="ghost" size="sm" className="h-8 px-2 text-red-600 hover:bg-red-50"
+                                                    onClick={() => { setSevkStartDate(""); setSevkEndDate(""); }}>
+                                                    <X className="h-3 w-3" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
+                                    {/* Sevk tarihi aralığı filtresi */}
+                                    <div className="flex items-center gap-1.5">
+                                        <label className="text-xs text-slate-500 whitespace-nowrap">Sevk Tarihi:</label>
                                         <Input
                                             type="date"
-                                            value={sevkStartDate}
-                                            onChange={(e) => setSevkStartDate(e.target.value)}
-                                            className="h-8 w-[140px] text-sm"
+                                            value={sevkTarihStart}
+                                            onChange={(e) => setSevkTarihStart(e.target.value)}
+                                            className="h-8 w-[130px] text-sm"
                                         />
                                         <span className="text-slate-400 text-sm">—</span>
                                         <Input
                                             type="date"
-                                            value={sevkEndDate}
-                                            onChange={(e) => setSevkEndDate(e.target.value)}
-                                            className="h-8 w-[140px] text-sm"
+                                            value={sevkTarihEnd}
+                                            onChange={(e) => setSevkTarihEnd(e.target.value)}
+                                            className="h-8 w-[130px] text-sm"
                                         />
-                                        {(sevkStartDate || sevkEndDate) && (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 px-2 text-red-600 hover:bg-red-50"
-                                                onClick={() => { setSevkStartDate(""); setSevkEndDate(""); }}
-                                            >
+                                        {(sevkTarihStart || sevkTarihEnd) && (
+                                            <Button variant="ghost" size="sm" className="h-8 px-2 text-red-600 hover:bg-red-50"
+                                                onClick={() => { setSevkTarihStart(""); setSevkTarihEnd(""); }}>
                                                 <X className="h-3 w-3" />
                                             </Button>
                                         )}
                                     </div>
-                                )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleExportShipped}
+                                        className="bg-teal-50 hover:bg-teal-100 text-teal-700 border-teal-200"
+                                    >
+                                        <Download className="h-4 w-4 mr-1" />
+                                        Excel ({shippedProducts.length})
+                                    </Button>
+                                </div>
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -1682,6 +1848,41 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                                         </Badge>
                                     )}
                                 </div>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs text-slate-500">Depo Giriş Aralığı:</label>
+                                    <Input
+                                        type="date"
+                                        value={depoStartDate}
+                                        onChange={(e) => setDepoStartDate(e.target.value)}
+                                        className="h-8 w-[140px] text-sm"
+                                    />
+                                    <span className="text-slate-400 text-sm">—</span>
+                                    <Input
+                                        type="date"
+                                        value={depoEndDate}
+                                        onChange={(e) => setDepoEndDate(e.target.value)}
+                                        className="h-8 w-[140px] text-sm"
+                                    />
+                                    {(depoStartDate || depoEndDate) && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 px-2 text-red-600 hover:bg-red-50"
+                                            onClick={() => { setDepoStartDate(""); setDepoEndDate(""); }}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleExportWarehouse}
+                                        className="bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
+                                    >
+                                        <Download className="h-4 w-4 mr-1" />
+                                        Excel ({warehouseProducts.length})
+                                    </Button>
+                                </div>
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -1746,6 +1947,7 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                                                                 )}
                                                             </div>
                                                             <div className="col-span-1 flex justify-center">
+                                                                {userRole !== "VIEWER" && (
                                                                 <Button
                                                                     size="sm"
                                                                     className="h-7 px-2 text-xs bg-teal-600 hover:bg-teal-700 text-white"
@@ -1758,6 +1960,7 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                                                                     <Send className="h-3 w-3 mr-1" />
                                                                     Sevk
                                                                 </Button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
@@ -1775,11 +1978,41 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                 <TabsContent value="inproduction">
                     <Card>
                         <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
-                                <Factory className="h-5 w-5 text-purple-600" />
-                                <CardTitle>Üretimdekiler</CardTitle>
-                                <Badge className="bg-purple-600">{inProductionProducts.length} ürün</Badge>
-                                <Badge className="bg-purple-600">{inProductionProducts.reduce((sum, p) => sum + p.quantity, 0)} adet</Badge>
+                            <div className="flex items-center justify-between flex-wrap gap-3">
+                                <div className="flex items-center gap-3">
+                                    <Factory className="h-5 w-5 text-purple-600" />
+                                    <CardTitle>Üretimdekiler</CardTitle>
+                                    <Badge className="bg-purple-600">{inProductionProducts.length} ürün</Badge>
+                                    <Badge className="bg-purple-600">{inProductionProducts.reduce((sum, p) => sum + p.quantity, 0)} adet</Badge>
+                                    {userRole === "ADMIN" && ciroInProduction > 0 && (
+                                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-base font-bold px-3 py-1">
+                                            <TrendingUp className="h-3 w-3 mr-1" />
+                                            Ciro: {formatCiro(ciroInProduction)}
+                                        </Badge>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <label className="text-xs text-slate-500 whitespace-nowrap">Termin Aralığı:</label>
+                                    <Input
+                                        type="date"
+                                        value={inprodStartDate}
+                                        onChange={(e) => setInprodStartDate(e.target.value)}
+                                        className="h-8 w-[130px] text-sm"
+                                    />
+                                    <span className="text-slate-400 text-sm">—</span>
+                                    <Input
+                                        type="date"
+                                        value={inprodEndDate}
+                                        onChange={(e) => setInprodEndDate(e.target.value)}
+                                        className="h-8 w-[130px] text-sm"
+                                    />
+                                    {(inprodStartDate || inprodEndDate) && (
+                                        <Button variant="ghost" size="sm" className="h-8 px-2 text-red-600 hover:bg-red-50"
+                                            onClick={() => { setInprodStartDate(""); setInprodEndDate(""); }}>
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -2471,8 +2704,8 @@ export function ProductionCalendar({ products, userRole }: ProductionCalendarPro
                 </DialogContent>
             </Dialog>
 
-            {/* Floating Bottom Action Bar */}
-            {selectedProductIds.length > 0 && (
+            {/* Floating Bottom Action Bar - VIEWER'a gösterilmez */}
+            {selectedProductIds.length > 0 && userRole !== "VIEWER" && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 animate-in slide-in-from-bottom-4">
                     <span className="font-medium">
                         {selectedProductIds.length} ürün seçili

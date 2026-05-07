@@ -13,7 +13,7 @@ export default async function MetalProductionPage() {
     const role = (session.user as any).role;
     const userId = parseInt((session.user as any).id);
     // Metal sayfasını görebilecek roller
-    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "METAL"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "METAL", "VIEWER"].includes(role)) {
         redirect("/dashboard");
     }
 

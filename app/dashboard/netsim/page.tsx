@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -111,6 +111,7 @@ interface NetSimOrderDetail {
 
 export default function NetSimPage() {
   const { data: session } = useSession();
+  const isViewer = (session?.user as any)?.role === "VIEWER";
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -120,6 +121,9 @@ export default function NetSimPage() {
   const [selectedOrder, setSelectedOrder] = useState<NetSimOrder | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importedOrderIds, setImportedOrderIds] = useState<Set<string>>(new Set());
+  const [updatedOrderIds, setUpdatedOrderIds] = useState<Set<number>>(new Set());
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
+  const isConnectedRef = useRef(false);
 
   // Pagination state'leri
   const [currentPage, setCurrentPage] = useState(1);
@@ -136,6 +140,7 @@ export default function NetSimPage() {
   const [filterDeliveryTo, setFilterDeliveryTo] = useState<Date | undefined>(undefined);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterOnlyOpen, setFilterOnlyOpen] = useState(false);
+  const [filterOnlyUpdated, setFilterOnlyUpdated] = useState(false);
   const [filterMinAmount, setFilterMinAmount] = useState("");
   const [filterMaxAmount, setFilterMaxAmount] = useState("");
 
@@ -143,11 +148,41 @@ export default function NetSimPage() {
     checkConnection();
   }, []);
 
+  // Her 90 saniyede bir güncelleme kontrolü
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isConnectedRef.current) {
+        silentCheckUpdates();
+      }
+    }, 90000);
+    return () => clearInterval(interval);
+  }, []);
+
   const checkConnection = async () => {
     const status = await checkNetSimConnection();
     setIsConnected(status.isConnected);
+    isConnectedRef.current = status.isConnected;
     if (status.isConnected) {
       loadOrders(1, pageSize);
+    }
+  };
+
+  // Sadece güncelleme kontrolü — sessiz, loading göstermeden
+  const silentCheckUpdates = async () => {
+    try {
+      const result = await getNetSimOrders({ limit: pageSize, offset: (currentPage - 1) * pageSize, onlyOpen: false });
+      if (result.success && result.updatedOrderIds && result.updatedOrderIds.length > 0) {
+        const newSet = new Set<number>(result.updatedOrderIds);
+        setUpdatedOrderIds(prev => {
+          const prevSize = prev.size;
+          if (newSet.size > prevSize) {
+            setUpdateBannerDismissed(false);
+          }
+          return newSet;
+        });
+      }
+    } catch {
+      // Sessizce geç
     }
   };
 
@@ -157,6 +192,7 @@ export default function NetSimPage() {
       const result = await connectNetSim("MARISITTEST.FDB");
       if (result.isConnected) {
         setIsConnected(true);
+        isConnectedRef.current = true;
         toast.success(`Baglanti basarili! ${result.tableCount} tablo bulundu.`);
         loadOrders(1, pageSize);
       } else {
@@ -183,6 +219,10 @@ export default function NetSimPage() {
         // Aktarılmış siparişleri kaydet
         if (result.importedOrderIds) {
           setImportedOrderIds(new Set(result.importedOrderIds.filter((id): id is string => id !== null)));
+        }
+        // NetSim'de güncellenen (yeni ürün eklenen) siparişleri kaydet
+        if (result.updatedOrderIds) {
+          setUpdatedOrderIds(new Set(result.updatedOrderIds));
         }
       } else {
         toast.error(result.error || "Siparisler yuklenemedi");
@@ -282,6 +322,7 @@ export default function NetSimPage() {
       }
 
       setSelectedOrders(new Set());
+      setUpdatedOrderIds(new Set());
       loadOrders();
     } catch (error) {
       toast.error("Toplu aktarma sirasinda hata olustu");
@@ -365,6 +406,11 @@ export default function NetSimPage() {
       return false;
     }
 
+    // Only updated filter
+    if (filterOnlyUpdated && !updatedOrderIds.has(order.ALISSATIS_NO)) {
+      return false;
+    }
+
     // Min amount filter
     if (filterMinAmount) {
       const minAmount = parseFloat(filterMinAmount);
@@ -387,7 +433,7 @@ export default function NetSimPage() {
   // Check if any filter is active
   const hasActiveFilters = filterCustomer || filterOrderNo || filterDateFrom || filterDateTo ||
     filterDeliveryFrom || filterDeliveryTo || filterStatus !== "all" || filterOnlyOpen ||
-    filterMinAmount || filterMaxAmount;
+    filterOnlyUpdated || filterMinAmount || filterMaxAmount;
 
   // Clear all filters
   const clearFilters = () => {
@@ -399,6 +445,7 @@ export default function NetSimPage() {
     setFilterDeliveryTo(undefined);
     setFilterStatus("all");
     setFilterOnlyOpen(false);
+    setFilterOnlyUpdated(false);
     setFilterMinAmount("");
     setFilterMaxAmount("");
   };
@@ -473,7 +520,7 @@ export default function NetSimPage() {
             />
             Yenile
           </Button>
-          {selectedOrders.size > 0 && (
+          {!isViewer && selectedOrders.size > 0 && (
             <Button onClick={handleImportSelected} disabled={isImporting}>
               {isImporting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -485,6 +532,37 @@ export default function NetSimPage() {
           )}
         </div>
       </div>
+
+      {/* Güncelleme Banner */}
+      {updatedOrderIds.size > 0 && !updateBannerDismissed && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-orange-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 shrink-0 text-orange-500" />
+            <span className="text-sm font-medium">
+              {updatedOrderIds.size} aktarılmış siparişe NetSim&apos;den yeni ürün eklendi — turuncu satırları kontrol edin.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 border-orange-300 text-orange-700 hover:bg-orange-100 text-xs"
+              onClick={() => loadOrders()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`mr-1 h-3 w-3 ${isLoading ? "animate-spin" : ""}`} />
+              Yenile
+            </Button>
+            <button
+              className="text-orange-500 hover:text-orange-700"
+              onClick={() => setUpdateBannerDismissed(true)}
+              aria-label="Kapat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filters Card */}
       <Card>
@@ -509,6 +587,23 @@ export default function NetSimPage() {
                 />
                 <label htmlFor="onlyOpen" className="text-sm cursor-pointer">
                   Sadece Açık Siparişler
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="onlyUpdated"
+                  checked={filterOnlyUpdated}
+                  onCheckedChange={(checked) => setFilterOnlyUpdated(checked === true)}
+                  className="data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500"
+                />
+                <label htmlFor="onlyUpdated" className="text-sm cursor-pointer flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5 text-orange-500" />
+                  Güncelleme Olanlar
+                  {updatedOrderIds.size > 0 && (
+                    <span className="ml-1 inline-flex items-center justify-center rounded-full bg-orange-100 text-orange-700 text-[10px] font-bold px-1.5 min-w-[18px] h-[18px]">
+                      {updatedOrderIds.size}
+                    </span>
+                  )}
                 </label>
               </div>
             </div>
@@ -745,6 +840,13 @@ export default function NetSimPage() {
                   <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterOnlyOpen(false)} />
                 </Badge>
               )}
+              {filterOnlyUpdated && (
+                <Badge variant="secondary" className="flex items-center gap-1 bg-orange-100 text-orange-700 border border-orange-200">
+                  <AlertCircle className="h-3 w-3" />
+                  Güncelleme Olanlar
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterOnlyUpdated(false)} />
+                </Badge>
+              )}
               {filterDateFrom && (
                 <Badge variant="secondary" className="flex items-center gap-1">
                   Sipariş: {format(filterDateFrom, "dd.MM.yyyy")}+
@@ -848,14 +950,26 @@ export default function NetSimPage() {
       {/* Orders Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Alinan Siparisler</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Alinan Siparisler</CardTitle>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-200" />
+                <span>Aktarıldı</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-orange-100 border border-orange-300" />
+                <span>Aktarıldı ama NetSim&apos;de yeni ürün eklendi</span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">
-                  <Checkbox
+                  {!isViewer && <Checkbox
                     checked={
                       selectedOrders.size === filteredOrders.length && filteredOrders.length > 0
                     }
@@ -866,7 +980,7 @@ export default function NetSimPage() {
                         setSelectedOrders(new Set(filteredOrders.map((o) => o.ALISSATIS_NO)));
                       }
                     }}
-                  />
+                  />}
                 </TableHead>
                 <TableHead>Siparis No</TableHead>
                 <TableHead>Musteri</TableHead>
@@ -882,25 +996,32 @@ export default function NetSimPage() {
             <TableBody>
               {filteredOrders.map((order) => {
                 const isImported = importedOrderIds.has(`NETSIM-${order.ALISSATIS_NO}`);
+                const hasUpdates = isImported && updatedOrderIds.has(order.ALISSATIS_NO);
                 return (
                 <TableRow
                   key={order.ALISSATIS_NO}
-                  className={isImported ? "bg-blue-50 hover:bg-blue-100" : ""}
+                  className={hasUpdates ? "bg-orange-50 hover:bg-orange-100" : isImported ? "bg-blue-50 hover:bg-blue-100" : ""}
                 >
                   <TableCell>
-                    <Checkbox
+                    {!isViewer && <Checkbox
                       checked={selectedOrders.has(order.ALISSATIS_NO)}
                       onCheckedChange={() =>
                         handleSelectOrder(order.ALISSATIS_NO)
                       }
-                    />
+                    />}
                   </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {order.TAKIP_NO || order.ALISSATIS_NO}
-                      {isImported && (
+                      {isImported && !hasUpdates && (
                         <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px]">
                           Aktarıldı
+                        </Badge>
+                      )}
+                      {hasUpdates && (
+                        <Badge variant="secondary" className="bg-orange-100 text-orange-700 border border-orange-300 text-[10px] flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Güncelleme Var
                         </Badge>
                       )}
                     </div>
@@ -1062,6 +1183,7 @@ export default function NetSimPage() {
                               </TableBody>
                             </Table>
                             <div className="flex justify-end gap-2 pt-4 border-t">
+                              {!isViewer && (
                               <Button
                                 size="lg"
                                 className="bg-green-600 hover:bg-green-700"
@@ -1078,18 +1200,19 @@ export default function NetSimPage() {
                                 )}
                                 Planlamaya Aktar
                               </Button>
+                              )}
                             </div>
                           </div>
                         </DialogContent>
                       </Dialog>
-                      <Button
+                      {!isViewer && <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleImportSingle(order)}
                         disabled={isImporting}
                       >
                       <Download className="h-4 w-4" />
-                      </Button>
+                      </Button>}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -32,7 +32,12 @@ export default async function PlanningPage() {
         include: {
             products: {
                 include: {
-                    order: true // Product içinden order'a erişebilmek için
+                    order: true,
+                    shipmentItems: {
+                        include: {
+                            shipment: true
+                        }
+                    }
                 }
             },
             marketingBy: true
@@ -56,7 +61,12 @@ export default async function PlanningPage() {
         },
         orderBy: { createdAt: 'desc' },
         include: {
-            order: true
+            order: true,
+            shipmentItems: {
+                include: {
+                    shipment: true
+                }
+            }
         }
     });
 

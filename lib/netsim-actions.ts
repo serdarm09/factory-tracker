@@ -60,15 +60,52 @@ export async function getNetSimOrders(options?: {
       totalCount = orders.length;
     }
 
-    // Aktarılmış siparişleri kontrol et
+    // Aktarılmış siparişleri ve ürün sayılarını kontrol et
     const orderIds = orders.map(o => `NETSIM-${o.ALISSATIS_NO}`);
     const importedOrders = await prisma.order.findMany({
       where: {
         externalId: { in: orderIds }
       },
-      select: { externalId: true }
+      select: {
+        externalId: true,
+        _count: { select: { products: true } }
+      }
     });
     const importedSet = new Set(importedOrders.map(o => o.externalId));
+
+    // NetSim'deki güncel ürün sayısını yerel ile karşılaştır
+    let updatedOrderIds: number[] = [];
+    if (importedOrders.length > 0) {
+      const importedAlissatisNos = importedOrders
+        .map(o => o.externalId?.replace('NETSIM-', ''))
+        .filter(Boolean)
+        .join(',');
+
+      if (importedAlissatisNos) {
+        try {
+          const netsimCounts = await netSimClient.query<{ ALISSATIS_NO: number; CNT: number }>(
+            `SELECT ALISSATIS_NO, COUNT(*) AS CNT FROM ALSADETA WHERE ALISSATIS_NO IN (${importedAlissatisNos}) GROUP BY ALISSATIS_NO`,
+            500
+          );
+
+          // externalId -> yerel ürün sayısı haritası
+          const localCountMap = new Map<string, number>();
+          for (const o of importedOrders) {
+            if (o.externalId) localCountMap.set(o.externalId, o._count.products);
+          }
+
+          for (const row of netsimCounts) {
+            const extId = `NETSIM-${row.ALISSATIS_NO}`;
+            const localCount = localCountMap.get(extId) ?? 0;
+            if (row.CNT > localCount) {
+              updatedOrderIds.push(row.ALISSATIS_NO);
+            }
+          }
+        } catch {
+          // Sessizce geç, ürün sayısı karşılaştırması zorunlu değil
+        }
+      }
+    }
 
     return {
       success: true,
@@ -78,6 +115,7 @@ export async function getNetSimOrders(options?: {
       pageSize: limit,
       totalPages: Math.ceil(totalCount / limit) || 1,
       importedOrderIds: Array.from(importedSet),
+      updatedOrderIds,
     };
   } catch (error) {
     console.error("NetSim getOrders error:", error);
@@ -125,19 +163,100 @@ export async function importNetSimOrder(
     });
 
     if (existingOrder) {
-      // Eğer sipariş var ama ürünleri silinmişse, siparişi de sil ve yeniden aktarmaya izin ver
-      if (existingOrder.products.length === 0) {
-        await prisma.order.delete({
-          where: { id: existingOrder.id },
-        });
-        // Devam et, yeniden aktarılacak
-      } else {
-        return {
-          success: false,
-          error: "Bu siparis daha once aktarilmis",
-          orderId: existingOrder.id,
-        };
+      // Senkronizasyon (Upsert) işlemi
+      const incomingExternalIds = new Set(details.map(d => `NETSIM-DETAY-${d.ALISSATIS_DETAY_NO}`));
+
+      // 1. Silinenleri bul ve sil (Netsim'de silinmiş ama yerelde kalanlar)
+      const productsToDelete = existingOrder.products.filter(p => p.externalId && !incomingExternalIds.has(p.externalId));
+      for (const p of productsToDelete) {
+        try {
+          await prisma.$transaction([
+            prisma.productionLog.deleteMany({ where: { productId: p.id } }),
+            prisma.inventory.deleteMany({ where: { productId: p.id } }),
+            prisma.product.delete({ where: { id: p.id } })
+          ]);
+        } catch (e) {
+          console.warn(`Silinemedi: ${p.id}`, e);
+        }
       }
+
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      for (const [index, detail] of details.entries()) {
+        const detailExtId = `NETSIM-DETAY-${detail.ALISSATIS_DETAY_NO}`;
+        const existingProduct = existingOrder.products.find(p => p.externalId === detailExtId);
+
+        if (existingProduct) {
+          // Guncelle
+          await prisma.product.update({
+            where: { id: existingProduct.id },
+            data: {
+              name: detail.STOK_ADI,
+              model: detail.STOK_KODU || `STOK-${detail.STOK_NO}`,
+              sku: detail.STOK_KODU || null,
+              description: detail.SIPARIS_ACIKLAMA || detail.ACIKLAMA || "",
+              aciklama1: detail.ACIKLAMA1 || null,
+              aciklama2: detail.ACIKLAMA2 || null,
+              aciklama3: detail.ACIKLAMA3 || null,
+              aciklama4: detail.ACIKLAMA4 || null,
+              dstAdi: detail.DST_ADI || null,
+              quantity: Math.floor(detail.MIKTAR),
+              unit: detail.BIRIM || "Adet",
+              unitPrice: detail.BIRIM_FIYAT,
+              totalPrice: detail.SATIR_TOPLAMI,
+              sortOrder: detail.SIRA_NO || index + 1,
+            }
+          });
+          updatedCount++;
+        } else {
+          // Yeni ekle
+          await prisma.product.create({
+            data: {
+              orderId: existingOrder.id,
+              name: detail.STOK_ADI,
+              model: detail.STOK_KODU || `STOK-${detail.STOK_NO}`,
+              sku: detail.STOK_KODU || null,
+              description: detail.SIPARIS_ACIKLAMA || detail.ACIKLAMA || "",
+              aciklama1: detail.ACIKLAMA1 || null,
+              aciklama2: detail.ACIKLAMA2 || null,
+              aciklama3: detail.ACIKLAMA3 || null,
+              aciklama4: detail.ACIKLAMA4 || null,
+              dstAdi: detail.DST_ADI || null,
+              quantity: Math.floor(detail.MIKTAR),
+              unit: detail.BIRIM || "Adet",
+              unitPrice: detail.BIRIM_FIYAT,
+              totalPrice: detail.SATIR_TOPLAMI,
+              status: "DRAFT",
+              sortOrder: detail.SIRA_NO || index + 1,
+              externalId: detailExtId,
+              systemCode: `NS-${order.ALISSATIS_NO}-${detail.ALISSATIS_DETAY_NO}`,
+              createdById: parseInt(userId),
+            }
+          });
+          addedCount++;
+        }
+      }
+
+      // Siparişi güncelle
+      await prisma.order.update({
+        where: { id: existingOrder.id },
+        data: {
+          totalAmount: order.GENEL_TOPLAM,
+          deliveryDate: order.TESLIM_TARIHI ? new Date(order.TESLIM_TARIHI) : existingOrder.deliveryDate,
+          description: order.ACIKLAMA || `NetSim Siparis #${order.ALISSATIS_NO}`,
+        }
+      });
+
+      revalidatePath("/dashboard/planning");
+      revalidatePath("/dashboard/netsim");
+
+      return {
+        success: true,
+        orderId: existingOrder.id,
+        productCount: existingOrder.products.length - productsToDelete.length + addedCount,
+        message: `Sipariş senkronize edildi: ${addedCount} yeni eklendi, ${updatedCount} güncellendi.`
+      };
     }
 
     // Yeni siparis olustur
@@ -602,19 +721,106 @@ export async function importNetSimOrderWithDeliveryDate(
     });
 
     if (existingOrder) {
-      // Eğer sipariş var ama ürünleri silinmişse, siparişi de sil ve yeniden aktarmaya izin ver
-      if (existingOrder.products.length === 0) {
-        await prisma.order.delete({
-          where: { id: existingOrder.id },
-        });
-        // Devam et, yeniden aktarılacak
-      } else {
-        return {
-          success: false,
-          error: "Bu siparis daha once aktarilmis",
-          orderId: existingOrder.id,
-        };
+      // Senkronizasyon (Upsert) işlemi
+      const incomingExternalIds = new Set(details.map(d => `NETSIM-DETAY-${d.ALISSATIS_DETAY_NO}`));
+
+      // 1. Silinenleri bul ve sil
+      const productsToDelete = existingOrder.products.filter(p => p.externalId && !incomingExternalIds.has(p.externalId));
+      for (const p of productsToDelete) {
+        try {
+          await prisma.$transaction([
+            prisma.productionLog.deleteMany({ where: { productId: p.id } }),
+            prisma.inventory.deleteMany({ where: { productId: p.id } }),
+            prisma.product.delete({ where: { id: p.id } })
+          ]);
+        } catch (e) {
+          console.warn(`Silinemedi: ${p.id}`, e);
+        }
       }
+
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      for (const [index, detail] of details.entries()) {
+        const detailExtId = `NETSIM-DETAY-${detail.ALISSATIS_DETAY_NO}`;
+        const existingProduct = existingOrder.products.find(p => p.externalId === detailExtId);
+
+        if (existingProduct) {
+          // Guncelle
+          await prisma.product.update({
+            where: { id: existingProduct.id },
+            data: {
+              name: detail.STOK_ADI,
+              model: detail.STOK_KODU || `STOK-${detail.STOK_NO}`,
+              sku: detail.STOK_KODU || null,
+              description: detail.SIPARIS_ACIKLAMA || detail.ACIKLAMA || "",
+              aciklama1: detail.ACIKLAMA1 || null,
+              aciklama2: detail.ACIKLAMA2 || null,
+              aciklama3: detail.ACIKLAMA3 || null,
+              aciklama4: detail.ACIKLAMA4 || null,
+              dstAdi: detail.DST_ADI || null,
+              quantity: Math.floor(detail.MIKTAR),
+              unit: detail.BIRIM || "Adet",
+              unitPrice: detail.BIRIM_FIYAT,
+              totalPrice: detail.SATIR_TOPLAMI,
+              sortOrder: detail.SIRA_NO || index + 1,
+            }
+          });
+          updatedCount++;
+        } else {
+          // Yeni ekle
+          await prisma.product.create({
+            data: {
+              orderId: existingOrder.id,
+              name: detail.STOK_ADI,
+              model: detail.STOK_KODU || `STOK-${detail.STOK_NO}`,
+              sku: detail.STOK_KODU || null,
+              description: detail.SIPARIS_ACIKLAMA || detail.ACIKLAMA || "",
+              aciklama1: detail.ACIKLAMA1 || null,
+              aciklama2: detail.ACIKLAMA2 || null,
+              aciklama3: detail.ACIKLAMA3 || null,
+              aciklama4: detail.ACIKLAMA4 || null,
+              dstAdi: detail.DST_ADI || null,
+              quantity: Math.floor(detail.MIKTAR),
+              unit: detail.BIRIM || "Adet",
+              unitPrice: detail.BIRIM_FIYAT,
+              totalPrice: detail.SATIR_TOPLAMI,
+              status: "DRAFT",
+              sortOrder: detail.SIRA_NO || index + 1,
+              externalId: detailExtId,
+              systemCode: `NS-${order.ALISSATIS_NO}-${detail.ALISSATIS_DETAY_NO}`,
+              createdById: parseInt(userId),
+            }
+          });
+          addedCount++;
+        }
+      }
+
+      // Teslim tarihini belirle
+      const finalDeliveryDate = customDeliveryDate
+        ? customDeliveryDate
+        : order.TESLIM_TARIHI
+        ? new Date(order.TESLIM_TARIHI)
+        : existingOrder.deliveryDate;
+
+      // Siparişi güncelle
+      await prisma.order.update({
+        where: { id: existingOrder.id },
+        data: {
+          totalAmount: order.GENEL_TOPLAM,
+          deliveryDate: finalDeliveryDate,
+          description: order.ACIKLAMA || `NetSim Siparis #${order.ALISSATIS_NO}`,
+        }
+      });
+
+      revalidatePath("/dashboard/planning");
+      revalidatePath("/dashboard/netsim");
+
+      return {
+        success: true,
+        orderId: existingOrder.id,
+        productCount: existingOrder.products.length - productsToDelete.length + addedCount,
+      };
     }
 
     // Teslim tarihini belirle

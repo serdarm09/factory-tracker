@@ -19,6 +19,8 @@ import { SemiFinishedProductDetailDialog } from "./semi-finished-product-detail-
 import { DateRangeFilter } from "./date-range-filter";
 import { DateRange } from "react-day-picker";
 import * as XLSX from 'xlsx';
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 
 interface SemiFinishedProductionTableProps {
@@ -450,6 +452,85 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
         toast.success(`${ongoingItems.length} devam eden ürün Excel'e aktarıldı`);
     };
 
+    const handleExportPdfByMaster = () => {
+        const ongoingItems = sortedItems.filter(item => item.status !== "COMPLETED");
+        if (ongoingItems.length === 0) {
+            toast.error("PDF oluşturulacak devam eden ürün yok");
+            return;
+        }
+
+        const normalizeTr = (str: unknown) => {
+            if (!str) return "";
+            return String(str)
+                .replace(/ğ/g, 'g').replace(/ş/g, 's').replace(/ı/g, 'i').replace(/ç/g, 'c').replace(/ö/g, 'o').replace(/ü/g, 'u')
+                .replace(/Ğ/g, 'G').replace(/Ş/g, 'S').replace(/İ/g, 'I').replace(/Ç/g, 'C').replace(/Ö/g, 'O').replace(/Ü/g, 'U');
+        };
+
+        // Grup by master (usta)
+        const byMaster: Record<string, typeof ongoingItems> = {};
+        ongoingItems.forEach(item => {
+            const master = item.product.master || "Atanmadi";
+            const normMaster = normalizeTr(master);
+            if (!byMaster[normMaster]) byMaster[normMaster] = [];
+            byMaster[normMaster].push(item);
+        });
+
+        const doc = new jsPDF({ orientation: "landscape", format: "a4" });
+        const catName = normalizeTr(categoryNames[category] || category);
+
+        const masters = Object.keys(byMaster).sort();
+        
+        masters.forEach((master, index) => {
+            if (index > 0) doc.addPage();
+            
+            doc.setFontSize(14);
+            doc.text(`${catName} - Usta: ${master} (Devam Eden Urunler)`, 14, 15);
+            doc.setFontSize(10);
+            doc.text(`Tarih: ${format(new Date(), 'dd.MM.yyyy HH:mm')}`, 14, 21);
+
+            const tableData = byMaster[master].map(item => [
+                normalizeTr(item.product.order?.company || '-'),
+                normalizeTr(item.product.name),
+                normalizeTr(item.product.model || '-'),
+                normalizeTr(item.product.dstAdi || '-'),
+                item.targetQty.toString(),
+                item.createdAt ? format(new Date(item.createdAt), 'dd.MM.yyyy') : '-',
+                item.product.terminDate ? format(new Date(item.product.terminDate), 'dd.MM.yyyy') : '-',
+                normalizeTr([
+                    item.product.description,
+                    item.product.aciklama1,
+                    item.product.aciklama2,
+                    item.product.aciklama3,
+                    item.product.aciklama4,
+                ].filter(Boolean).join(' | ')) || '-'
+            ]);
+
+            autoTable(doc, {
+                startY: 25,
+                head: [['Firma', 'Urun', 'Model', 'DST', 'Hedef', 'Siparis T.', 'Termin T.', 'Aciklamalar']],
+                body: tableData,
+                styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+                columnStyles: {
+                    0: { cellWidth: 30 }, // Firma
+                    1: { cellWidth: 45 }, // Urun
+                    2: { cellWidth: 35 }, // Model
+                    3: { cellWidth: 25 }, // DST
+                    4: { cellWidth: 15 }, // Hedef
+                    5: { cellWidth: 22 }, // Siparis
+                    6: { cellWidth: 22 }, // Termin
+                    7: { cellWidth: 'auto' }, // Aciklamalar
+                },
+                theme: 'grid',
+                headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
+                margin: { top: 25, right: 10, bottom: 10, left: 10 }
+            });
+        });
+
+        const fileName = `Devam_Eden_${catName}_Yazdir_${format(new Date(), 'dd-MM-yyyy_HH-mm')}.pdf`;
+        doc.save(fileName);
+        toast.success(`PDF indirildi (${masters.length} Usta)`);
+    };
+
     if (loading) {
         return <div className="text-center py-8 text-slate-500">Yükleniyor...</div>;
     }
@@ -513,6 +594,8 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                             min={0}
                             autoFocus
                         />
+                    ) : userRole === "VIEWER" ? (
+                        <span className="font-semibold">{item.producedQty}</span>
                     ) : (
                         <span
                             className="cursor-pointer hover:text-blue-600 font-semibold"
@@ -569,6 +652,7 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                             <span className={`font-semibold ${item.surplusQty > 0 ? "text-orange-600" : "text-slate-400"}`}>
                                 {item.surplusQty > 0 ? item.surplusQty : "-"}
                             </span>
+                            {userRole !== "VIEWER" && (
                             <Button
                                 size="sm"
                                 variant="ghost"
@@ -581,6 +665,7 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                             >
                                 <Edit className="h-3 w-3" />
                             </Button>
+                            )}
                         </div>
                     )}
                 </TableCell>
@@ -650,7 +735,7 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                             </>
                         ) : (
                             <>
-                                {userRole !== "WORKER" && (
+                                {!["WORKER", "VIEWER"].includes(userRole) && (
                                     <Button
                                         size="sm"
                                         variant="outline"
@@ -885,14 +970,24 @@ export function SemiFinishedProductionTable({ category, userRole }: SemiFinished
                 <div className="flex gap-2 ml-auto">
                     {/* Excel indirme - sadece admin ve genel roller için */}
                     {!["METAL", "AHSAP_BOYA", "AHSAP_ISKELET"].includes(userRole) && (
-                        <Button
-                            onClick={handleExportToExcel}
-                            variant="outline"
-                            className="gap-2"
-                        >
-                            <Download className="h-4 w-4" />
-                            Excel İndir
-                        </Button>
+                        <>
+                            <Button
+                                onClick={handleExportToExcel}
+                                variant="outline"
+                                className="gap-2"
+                            >
+                                <Download className="h-4 w-4" />
+                                Excel İndir
+                            </Button>
+                            <Button
+                                onClick={handleExportPdfByMaster}
+                                variant="outline"
+                                className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                            >
+                                <Download className="h-4 w-4" />
+                                PDF İndir (Ustalar)
+                            </Button>
+                        </>
                     )}
                     {/* Sadece genel roller manuel ürün ekleyebilsin */}
                     {!["METAL", "KONFEKSIYON", "AHSAP_BOYA", "AHSAP_ISKELET"].includes(userRole) && (

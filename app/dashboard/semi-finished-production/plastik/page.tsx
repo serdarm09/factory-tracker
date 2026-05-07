@@ -11,7 +11,7 @@ export default async function PlastikProductionPage() {
 
     const role = (session.user as any).role;
     const userId = parseInt((session.user as any).id);
-    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "PLASTIK"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE", "YARİMAMUL", "PLASTIK", "VIEWER"].includes(role)) {
         redirect("/dashboard");
     }
 
