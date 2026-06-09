@@ -922,10 +922,6 @@ export function ProductionPlanningTable({ products, userRole, userId }: Producti
                         <Package className="h-3 w-3" />
                         Tümü ({products.length})
                     </TabsTrigger>
-                    <TabsTrigger value="IN_PRODUCTION" className="gap-1 text-[11px] px-2 py-1">
-                        <Wrench className="h-3 w-3" />
-                        Üretimde ({products.filter(p => p.status === "IN_PRODUCTION").length})
-                    </TabsTrigger>
                     <TabsTrigger value="IN_WAREHOUSE" className="gap-1 text-[11px] px-2 py-1">
                         <Warehouse className="h-3 w-3" />
                         Depoda ({stats.inWarehouseProductCount})
@@ -1387,7 +1383,7 @@ export function ProductionPlanningTable({ products, userRole, userId }: Producti
                                                 </span>
                                             </CardTitle>
                                         </CardHeader>
-                                                        <CardContent className="space-y-2 px-2 pb-2">
+                                        <CardContent className="space-y-2 px-2 pb-2">
                                             <div className="grid grid-cols-6 gap-1">
                                                 {STAGES.map(stage => {
                                                     const StageIcon = stage.icon;

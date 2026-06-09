@@ -2,6 +2,12 @@
 // Factory-Tracker'dan NetSim Bridge API'ye bağlantı
 
 const NETSIM_API_URL = process.env.NETSIM_API_URL || 'http://localhost:5000';
+const NETSIM_DATABASE_PATH = process.env.NETSIM_DATABASE_PATH || 'C:/Ofisnet/Data';
+const NETSIM_DATABASE_FILE = process.env.NETSIM_DATABASE_FILE || 'MARISITTEST.FDB';
+const NETSIM_DATASOURCE = process.env.NETSIM_DATASOURCE;
+const NETSIM_CHARSET = process.env.NETSIM_CHARSET || 'WIN1254';
+const NETSIM_CLIENT_LIBRARY = process.env.NETSIM_CLIENT_LIBRARY;
+const NETSIM_USE_EMBEDDED = process.env.NETSIM_USE_EMBEDDED === 'true';
 
 export interface NetSimDatabase {
   fileName: string;
@@ -225,15 +231,18 @@ class NetSimClient {
   }
 
   // Veritabanina baglan
-  async connect(databaseFile: string, username: string = 'SYSDBA', password: string = 'masterkey'): Promise<NetSimConnectionResult> {
+  async connect(databaseFile: string = NETSIM_DATABASE_FILE, username: string = 'SYSDBA', password: string = 'masterkey'): Promise<NetSimConnectionResult> {
     const result = await this.fetch<NetSimConnectionResult>('/api/database/connect', {
       method: 'POST',
       body: JSON.stringify({
-        DatabasePath: 'C:/Ofisnet/Data',
+        DatabasePath: NETSIM_DATABASE_PATH,
         DatabaseFile: databaseFile,
+        DataSource: NETSIM_DATASOURCE,
         Username: username,
         Password: password,
-        Charset: 'NONE',
+        Charset: NETSIM_CHARSET,
+        UseEmbedded: NETSIM_USE_EMBEDDED,
+        ClientLibrary: NETSIM_CLIENT_LIBRARY,
       }),
     });
 
@@ -305,6 +314,35 @@ class NetSimClient {
     `;
 
     return this.query<NetSimOrder>(sql, limit);
+  }
+
+  // Tek siparis getir
+  async getOrder(alissatisNo: number): Promise<NetSimOrder | null> {
+    const sql = `
+      SELECT FIRST 1
+        a.ALISSATIS_NO,
+        a.TAKIP_NO,
+        a.ISLEM_KODU,
+        a.ISLEM_ADI,
+        a.TARIH,
+        a.TESLIM_TARIHI,
+        a.DURUM,
+        a.CARI_NO,
+        c.CARI_UNVANI,
+        a.GENEL_TOPLAM,
+        a.DOVIZ_BIRIMI,
+        a.ONAYLANDI,
+        a.KAPANDI,
+        a.ACIKLAMA,
+        a.PERSONEL_NO
+      FROM ALSAASIL a
+      LEFT JOIN CARIKART c ON a.CARI_NO = c.CARI_NO
+      WHERE a.ALISSATIS_NO = ${alissatisNo}
+        AND a.ISLEM_KODU LIKE 'ALIS%'
+    `;
+
+    const results = await this.query<NetSimOrder>(sql, 1);
+    return results[0] || null;
   }
 
   // Siparis detaylarini getir

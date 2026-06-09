@@ -154,7 +154,7 @@ export default function RecetePage() {
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
-      const result = await connectNetSim("MARISITTEST.FDB");
+      const result = await connectNetSim();
       if (result.isConnected) {
         setIsConnected(true);
         toast.success(`Baglanti basarili! ${result.tableCount} tablo bulundu.`);

@@ -189,7 +189,7 @@ export default function NetSimPage() {
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
-      const result = await connectNetSim("MARISITTEST.FDB");
+      const result = await connectNetSim();
       if (result.isConnected) {
         setIsConnected(true);
         isConnectedRef.current = true;

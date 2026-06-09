@@ -485,7 +485,7 @@ export async function sendToProduction(productId: number) {
                     // NetSim bağlantısını kontrol et
                     const status = await netSimClient.getStatus();
                     if (!status.isConnected) {
-                        const connectResult = await netSimClient.connect("MARISITTEST.FDB", "SYSDBA", "masterkey");
+                        const connectResult = await netSimClient.connect(undefined, "SYSDBA", "masterkey");
                         if (!connectResult.isConnected) {
                             netSimError = "NetSim'e bağlanılamadı";
                         }

@@ -21,7 +21,7 @@ export async function checkNetSimConnection() {
 }
 
 // NetSim'e baglan
-export async function connectNetSim(databaseFile: string) {
+export async function connectNetSim(databaseFile?: string) {
   try {
     const result = await netSimClient.connect(databaseFile, "SYSDBA", "masterkey");
     return result;
@@ -551,13 +551,11 @@ export async function importMultipleNetSimOrders(
     error?: string;
   }[] = [];
 
-  // Tum siparisleri bir kerede al (performans icin)
-  const allOrders = await netSimClient.getOrders({ limit: 500, onlyOpen: true });
-
   for (const alissatisNo of orderIds) {
     try {
-      // Siparis bilgilerini bul
-      const order = allOrders.find((o) => o.ALISSATIS_NO === alissatisNo);
+      // Siparis bilgilerini dogrudan NetSim'den bul.
+      // Sayfadaki secim kapali siparis veya ilk 500 kaydin disinda olabilir.
+      const order = await netSimClient.getOrder(alissatisNo);
 
       if (!order) {
         results.push({
@@ -673,10 +671,10 @@ export async function updateNetSimDeliveryDate(
   try {
     const result = await netSimClient.updateDeliveryDate(alissatisNo, deliveryDate);
 
-    if (!result) {
+    if (!result.success) {
       return {
         success: false,
-        error: "NetSim'de teslim tarihi guncellenemedi",
+        error: result.error || "NetSim'de teslim tarihi guncellenemedi",
       };
     }
 
@@ -705,8 +703,8 @@ export async function importNetSimOrderWithDeliveryDate(
         customDeliveryDate
       );
 
-      if (!updateResult) {
-        console.warn("NetSim teslim tarihi guncellenemedi, devam ediliyor...");
+      if (!updateResult.success) {
+        console.warn("NetSim teslim tarihi guncellenemedi, devam ediliyor...", updateResult.error);
       }
     }
 

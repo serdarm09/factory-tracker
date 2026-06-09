@@ -463,14 +463,6 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                     Onaylanan ({approvedProducts.length})
                 </Button>
                 <Button
-                    variant={activeTab === "inProduction" ? "default" : "outline"}
-                    onClick={() => { setActiveTab("inProduction"); setCurrentPage(1); }}
-                    className={activeTab === "inProduction" ? "bg-purple-600 hover:bg-purple-700" : ""}
-                >
-                    <Factory className="h-4 w-4 mr-2" />
-                    Üretimde ({inProductionProducts.length})
-                </Button>
-                <Button
                     variant={activeTab === "completed" ? "default" : "outline"}
                     onClick={() => { setActiveTab("completed"); setCurrentPage(1); }}
                     className={activeTab === "completed" ? "bg-green-600 hover:bg-green-700" : ""}
@@ -597,7 +589,7 @@ export function MarketingProductList({ marketingReviewProducts, approvedProducts
                                         </TableCell>
                                         <TableCell>{p.order?.company || '-'}</TableCell>
                                         <TableCell className="font-bold">{p.quantity}</TableCell>
-                                {(activeTab === "completed" || activeTab === "inProduction") && (
+                                        {(activeTab === "completed" || activeTab === "inProduction") && (
                                             <TableCell>
                                                 <span className="font-bold text-green-600">{p.storedQty || 0}</span>
                                             </TableCell>
