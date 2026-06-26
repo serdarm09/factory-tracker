@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Search, X, Info } from "lucide-react";
+import { Search, X, Info, Download } from "lucide-react";
 import { format, formatDistanceToNow, startOfDay, endOfDay, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { tr } from "date-fns/locale";
+import * as XLSX from "xlsx";
 
 const DATE_PRESETS = [
     { label: "Tümü", value: "all" },
@@ -51,13 +52,40 @@ export function MovementsTab({ logs }: { logs: any[] }) {
     const [customFrom, setCustomFrom] = useState("");
     const [customTo, setCustomTo] = useState("");
     const [selectedLog, setSelectedLog] = useState<any | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const [loadedLogs, setLoadedLogs] = useState<any[]>(logs);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(logs.length === 500);
+
+    useEffect(() => {
+        setLoadedLogs(logs);
+        setHasMore(logs.length === 500);
+    }, [logs]);
+
+    const loadMore = async () => {
+        if (loadedLogs.length === 0) return;
+        try {
+            setIsLoadingMore(true);
+            const lastId = loadedLogs[loadedLogs.length - 1].id;
+            const res = await fetch(`/api/raw-materials/logs?cursorId=${lastId}&take=500`);
+            if (!res.ok) throw new Error("Veri çekilemedi");
+            const newLogs = await res.json();
+            if (newLogs.length < 500) setHasMore(false);
+            setLoadedLogs(prev => [...prev, ...newLogs]);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    };
 
     const { from: dateFrom, to: dateTo } = useMemo(
         () => getDateRange(datePreset, customFrom, customTo),
         [datePreset, customFrom, customTo]
     );
 
-    const filteredLogs = useMemo(() => logs.filter((log) => {
+    const filteredLogs = useMemo(() => loadedLogs.filter((log) => {
         // Metin araması
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
@@ -76,7 +104,7 @@ export function MovementsTab({ logs }: { logs: any[] }) {
         if (dateTo && logDate > dateTo) return false;
 
         return true;
-    }), [logs, searchQuery, filterType, dateFrom, dateTo]);
+    }), [loadedLogs, searchQuery, filterType, dateFrom, dateTo]);
 
     const hasActiveFilter = searchQuery || filterType !== "all" || datePreset !== "all";
 
@@ -86,6 +114,78 @@ export function MovementsTab({ logs }: { logs: any[] }) {
         setDatePreset("all");
         setCustomFrom("");
         setCustomTo("");
+    };
+
+    const exportToExcel = async () => {
+        try {
+            setIsExporting(true);
+            
+            let url = "/api/raw-materials/logs";
+            if (dateFrom || dateTo) {
+                const params = new URLSearchParams();
+                if (dateFrom) params.append("from", dateFrom.toISOString());
+                if (dateTo) params.append("to", dateTo.toISOString());
+                url += `?${params.toString()}`;
+            }
+
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Veriler getirilemedi");
+            
+            const fullLogs = await response.json();
+
+            // Apply text and type filters to the fetched logs
+            const finalLogs = fullLogs.filter((log: any) => {
+                if (searchQuery.trim()) {
+                    const q = searchQuery.toLowerCase();
+                    const matchName = log.rawMaterial?.name?.toLowerCase().includes(q);
+                    const matchNote = log.note?.toLowerCase().includes(q);
+                    const matchUser = log.user?.username?.toLowerCase().includes(q);
+                    if (!matchName && !matchNote && !matchUser) return false;
+                }
+                if (filterType !== "all" && log.type !== filterType) return false;
+                return true;
+            });
+
+            if (finalLogs.length === 0) {
+                alert("Seçili aralıkta ve filtrelerde kayıt bulunamadı.");
+                return;
+            }
+
+            const dataToExport = finalLogs.map((log: any) => ({
+                "Tarih": format(new Date(log.createdAt), "dd.MM.yyyy HH:mm"),
+                "Hammadde": log.rawMaterial?.name || "",
+                "Kategori": log.rawMaterial?.category || "",
+                "İşlem": log.type === "IN" ? "GİRİŞ" : "ÇIKIŞ",
+                "Miktar": log.quantity,
+                "Birim": log.rawMaterial?.unit || "",
+                "Kullanıcı": log.user?.username || "Bilinmiyor",
+                "Not": log.note || ""
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Hareketler");
+            
+            // Sütun genişlikleri ayarı
+            worksheet["!cols"] = [
+                { wch: 18 }, // Tarih
+                { wch: 30 }, // Hammadde
+                { wch: 20 }, // Kategori
+                { wch: 10 }, // İşlem
+                { wch: 10 }, // Miktar
+                { wch: 10 }, // Birim
+                { wch: 20 }, // Kullanıcı
+                { wch: 40 }  // Not
+            ];
+
+            const fileName = `Hammadde_Hareketleri_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
+        } catch (error) {
+            console.error("Excel export error:", error);
+            alert("Excel'e aktarılırken bir hata oluştu.");
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     // Özet sayaçları
@@ -157,6 +257,17 @@ export function MovementsTab({ logs }: { logs: any[] }) {
                             <X className="w-3.5 h-3.5" /> Temizle
                         </Button>
                     )}
+
+                    {/* Excel'e Aktar Butonu */}
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={exportToExcel} 
+                        className="h-9 gap-1 ml-auto text-green-700 border-green-200 hover:bg-green-50 hover:text-green-800"
+                        disabled={isExporting}
+                    >
+                        <Download className="w-4 h-4" /> {isExporting ? "Aktarılıyor..." : "Excel'e Aktar"}
+                    </Button>
                 </div>
 
                 {/* ─── Özet Satırı ─── */}
@@ -222,6 +333,19 @@ export function MovementsTab({ logs }: { logs: any[] }) {
                             })}
                         </TableBody>
                     </Table>
+                )}
+
+                {hasMore && (
+                    <div className="py-4 flex justify-center border-t bg-slate-50/30">
+                        <Button 
+                            variant="outline" 
+                            onClick={loadMore} 
+                            disabled={isLoadingMore}
+                            className="bg-white"
+                        >
+                            {isLoadingMore ? "Yükleniyor..." : "Daha Eski Kayıtları Yükle"}
+                        </Button>
+                    </div>
                 )}
             </CardContent>
 

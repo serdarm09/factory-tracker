@@ -142,19 +142,35 @@ export async function addRawMaterialLog(data: { rawMaterialId: number; type: "IN
 
     try {
         await prisma.$transaction(async (tx) => {
+            let actualQuantity = data.quantity;
+
+            // Çıkış işleminde negatif stok koruması: stok 0'ın altına düşemez
+            if (data.type === "OUT") {
+                const material = await tx.rawMaterial.findUnique({
+                    where: { id: data.rawMaterialId },
+                    select: { quantity: true }
+                });
+                if (!material) throw new Error("Hammadde bulunamadı.");
+                if (material.quantity <= 0) {
+                    throw new Error("Stok zaten sıfır, daha fazla çıkış yapılamaz.");
+                }
+                // İstenen miktardan fazla yoksa mevcut stoğu sıfıra çek
+                actualQuantity = Math.min(data.quantity, material.quantity);
+            }
+
             // 1. Log oluştur
             await (tx as any).rawMaterialLog.create({
                 data: {
                     rawMaterialId: data.rawMaterialId,
                     type: data.type,
-                    quantity: data.quantity,
+                    quantity: actualQuantity,
                     userId,
                     note: data.note || (data.type === "IN" ? "Manuel Giriş" : "Manuel Çıkış")
                 }
             });
 
             // 2. Stoğu güncelle
-            const operation = data.type === "IN" ? { increment: data.quantity } : { decrement: data.quantity };
+            const operation = data.type === "IN" ? { increment: actualQuantity } : { decrement: actualQuantity };
             await tx.rawMaterial.update({
                 where: { id: data.rawMaterialId },
                 data: { quantity: operation }
@@ -163,11 +179,12 @@ export async function addRawMaterialLog(data: { rawMaterialId: number; type: "IN
 
         revalidatePath('/dashboard/raw-materials');
         return { success: true };
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error adding raw material log:", error);
-        return { success: false, error: "Stok hareketi kaydedilemedi." };
+        return { success: false, error: error.message || "Stok hareketi kaydedilemedi." };
     }
 }
+
 
 export async function getRawMaterialLogs() {
     try {
@@ -426,5 +443,302 @@ export async function importRawMaterialsFromExcel(data: any[][], category: RawMa
     } catch (error: any) {
         console.error("Error importing raw materials from excel:", error);
         return { success: false, error: error.message || "Excel içe aktarma sırasında hata oluştu." };
+    }
+}
+
+// --- Levenshtein mesafesi ile benzer isim bulma ---
+function levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+        Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    );
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            dp[i][j] = a[i - 1] === b[j - 1]
+                ? dp[i - 1][j - 1]
+                : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    return dp[m][n];
+}
+
+function findSimilarNames(target: string, allNames: string[], maxResults = 2): string[] {
+    const t = target.toLowerCase();
+    return allNames
+        .map(name => ({ name, dist: levenshtein(t, name.toLowerCase()) }))
+        .filter(({ dist, name }) => dist <= Math.max(4, Math.floor(target.length * 0.4)) || name.toLowerCase().includes(t) || t.includes(name.toLowerCase()))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, maxResults)
+        .map(({ name }) => name);
+}
+
+/**
+ * Akıllı eşleştirme – öncelik sırası:
+ * 1. Tam eşleşme (case-insensitive)
+ * 2. DB adı, Excel adı ile başlıyor  → "HARŞENA 01" ≈ "HARŞENA 01 SİYAH"
+ * 3. Excel adı, DB adı ile başlıyor  → "TOSKANO 05 KAHVE" ≈ "TOSKANO 05"
+ * 4. DB adı, Excel adını içeriyor
+ */
+function findBestMaterialMatch<T extends { name: string }>(target: string, materials: T[]): T | undefined {
+    const t = target.toLowerCase().trim();
+
+    // 1. Tam eşleşme
+    const exact = materials.find(m => m.name.toLowerCase() === t);
+    if (exact) return exact;
+
+    // 2. DB adı Excel adıyla başlıyor ("HARŞENA 01" → "HARŞENA 01 SİYAH")
+    const dbStartsWith = materials.filter(m => m.name.toLowerCase().startsWith(t));
+    if (dbStartsWith.length === 1) return dbStartsWith[0];
+    // Birden fazla varsa en kısa olanı (en yakın eşleşme)
+    if (dbStartsWith.length > 1) return dbStartsWith.sort((a, b) => a.name.length - b.name.length)[0];
+
+    // 3. Excel adı DB adıyla başlıyor ("TOSKANO 05 KAHVE" varsa "TOSKANO 05" gibi)
+    const excelStartsWith = materials.filter(m => t.startsWith(m.name.toLowerCase()));
+    if (excelStartsWith.length === 1) return excelStartsWith[0];
+    if (excelStartsWith.length > 1) return excelStartsWith.sort((a, b) => b.name.length - a.name.length)[0];
+
+    // 4. DB adı Excel adını içeriyor
+    const contains = materials.filter(m => m.name.toLowerCase().includes(t));
+    if (contains.length === 1) return contains[0];
+    if (contains.length > 1) return contains.sort((a, b) => a.name.length - b.name.length)[0];
+
+    return undefined;
+}
+
+// --- Excel Çıkış Önizleme (Wizard Adım 2 için) ---
+export async function previewExcelForExit(data: any[][], nameColIndex: number, qtyColIndex: number) {
+    if (!data || data.length < 2) return { success: false as const, error: "Dosya boş." };
+
+    const session = await auth();
+    if (!session) return { success: false as const, error: "Yetkisiz işlem." };
+
+    try {
+        const allMaterials = await prisma.rawMaterial.findMany({ select: { id: true, name: true, quantity: true, unit: true } });
+        const allNames = allMaterials.map(m => m.name);
+
+        const headerRowIndex = nameColIndex >= 0 ? (
+            // header'ı bul
+            (() => {
+                for (let i = 0; i < Math.min(10, data.length); i++) {
+                    const row = data[i];
+                    if (Array.isArray(row) && row[nameColIndex] !== undefined) {
+                        const cell = String(row[nameColIndex] || "").toUpperCase().trim();
+                        if (cell.includes("ADI") || cell === "İSİM" || cell === "CİNSİ" || cell === "ADI") return i;
+                    }
+                }
+                return 0;
+            })()
+        ) : 0;
+
+        type PreviewRow = {
+            rowIndex: number;
+            name: string;
+            quantity: number;
+            status: "found" | "not_found" | "insufficient" | "zero";
+            currentStock?: number;
+            unit?: string;
+            suggestions?: string[];
+        };
+
+        const rows: PreviewRow[] = [];
+
+        for (let i = headerRowIndex + 1; i < data.length; i++) {
+            const row = data[i];
+            if (!Array.isArray(row) || row.length === 0) continue;
+
+            const rawName = String(row[nameColIndex] ?? "").trim();
+            if (!rawName || rawName === "-- --") continue;
+
+            const qty = Number(row[qtyColIndex] ?? 0);
+            if (isNaN(qty) || qty <= 0) {
+                rows.push({ rowIndex: i, name: rawName, quantity: qty || 0, status: "zero" });
+                continue;
+            }
+
+            const found = findBestMaterialMatch(rawName, allMaterials);
+            if (found) {
+                rows.push({
+                    rowIndex: i,
+                    name: rawName,
+                    quantity: qty,
+                    status: found.quantity < qty ? "insufficient" : "found",
+                    currentStock: found.quantity,
+                    unit: found.unit,
+                });
+            } else {
+                rows.push({
+                    rowIndex: i,
+                    name: rawName,
+                    quantity: qty,
+                    status: "not_found",
+                    suggestions: findSimilarNames(rawName, allNames),
+                });
+            }
+        }
+
+        return { success: true as const, rows, totalRows: rows.length };
+    } catch (error: any) {
+        return { success: false as const, error: error.message || "Önizleme sırasında hata oluştu." };
+    }
+}
+
+// --- Excel'den Toplu Stok Çıkışı (Geliştirilmiş) ---
+export async function bulkExitRawMaterialsFromExcel(
+    data: any[][],
+    options?: { nameColIndex?: number; qtyColIndex?: number; note?: string; allowNegative?: boolean }
+): Promise<
+    | { success: false; error: string }
+    | { success: true; deducted: number; totalQty: number; notFound: { name: string; suggestions: string[] }[]; insufficient: { name: string; quantity: number }[] }
+> {
+    if (!data || data.length < 2) return { success: false, error: "Dosya boş veya beklenen formatta değil." };
+
+    const session = await auth();
+    if (!session) return { success: false, error: "Yetkisiz işlem." };
+    const userId = parseInt((session.user as any).id);
+
+    const userNote = options?.note?.trim() || "Excel'den Toplu Günlük Çıkış";
+    const allowNegative = options?.allowNegative ?? false;
+
+    try {
+        let headerRowIndex = 0;
+        let nameColIndex = options?.nameColIndex ?? -1;
+        let qtyColIndex = options?.qtyColIndex ?? -1;
+
+        // Otomatik kolon tespiti (eğer dışarıdan verilmediyse)
+        if (nameColIndex === -1 || qtyColIndex === -1) {
+            for (let i = 0; i < Math.min(10, data.length); i++) {
+                const row = data[i];
+                if (!Array.isArray(row)) continue;
+
+                for (let j = 0; j < row.length; j++) {
+                    const cell = String(row[j] || "").toUpperCase().trim();
+
+                    if (nameColIndex === -1 && (
+                        cell.includes("STOK ADI") || cell.includes("ÜRÜN ADI") || cell.includes("ÜRÜN CİNSİ") ||
+                        cell === "ADI" || cell === "İSİM" || cell === "CİNSİ" ||
+                        cell.includes("KUMAŞ ADI") || cell.includes("DERİ ADI")
+                    )) {
+                        nameColIndex = j;
+                        headerRowIndex = i;
+                    }
+
+                    if (qtyColIndex === -1 && (
+                        cell === "ÇIKIŞ" || cell === "ÇIKAN" || cell === "ÇIKAN METRAJ" ||
+                        cell === "MİKTAR" || cell === "HARCANAN" || cell === "DÜŞÜLEN"
+                    )) {
+                        qtyColIndex = j;
+                    }
+                }
+                if (nameColIndex !== -1 && qtyColIndex !== -1) break;
+            }
+        } else {
+            // Verilen kolonlar ile header satırını bul
+            for (let i = 0; i < Math.min(10, data.length); i++) {
+                const row = data[i];
+                if (!Array.isArray(row)) continue;
+                const cell = String(row[nameColIndex] || "").toUpperCase().trim();
+                if (cell.includes("ADI") || cell === "İSİM" || cell === "CİNSİ") {
+                    headerRowIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (nameColIndex === -1) {
+            return { success: false, error: "Excel dosyasında 'STOK ADI' veya türevi bir kolon bulunamadı." };
+        }
+        if (qtyColIndex === -1) {
+            qtyColIndex = nameColIndex + 1;
+        }
+
+        // Tüm malzemeleri belleğe yükle – akıllı eşleştirme + benzer isim önerisi için
+        const allMaterials = await prisma.rawMaterial.findMany({ select: { id: true, name: true, quantity: true } });
+        const allNames = allMaterials.map(m => m.name);
+
+        type RowResult = {
+            name: string;
+            quantity: number;
+            status: "deducted" | "not_found" | "insufficient";
+            suggestions?: string[];
+        };
+
+        const results: RowResult[] = [];
+        let deductedCount = 0;
+        let totalQtyDeducted = 0;
+
+        await prisma.$transaction(async (tx) => {
+            const parseNum = (val: any): number => {
+                if (val === undefined || val === null || val === "") return 0;
+                const parsed = Number(val);
+                return isNaN(parsed) ? 0 : parsed;
+            };
+
+            for (let i = headerRowIndex + 1; i < data.length; i++) {
+                const row = data[i];
+                if (!Array.isArray(row) || row.length === 0) continue;
+
+                const rawName = String(row[nameColIndex] ?? "").trim();
+                if (!rawName || rawName === "-- --") continue;
+
+                const quantity = parseNum(row[qtyColIndex]);
+                if (quantity <= 0) continue;
+
+                // Akıllı eşleştirme: tam → startsWith → contains
+                const matched = findBestMaterialMatch(rawName, allMaterials);
+
+                // Eşleşen kaydın güncel stok miktarını TX içinde tekrar çek
+                const existing = matched
+                    ? await tx.rawMaterial.findUnique({ where: { id: matched.id } })
+                    : null;
+
+                if (!existing) {
+                    results.push({
+                        name: rawName,
+                        quantity,
+                        status: "not_found",
+                        suggestions: findSimilarNames(rawName, allNames),
+                    });
+                    continue;
+                }
+
+                // Negatif stok koruması
+                if (!allowNegative && existing.quantity < quantity) {
+                    results.push({ name: rawName, quantity, status: "insufficient" });
+                    continue;
+                }
+
+                await tx.rawMaterial.update({
+                    where: { id: existing.id },
+                    data: { quantity: { decrement: quantity } }
+                });
+                await (tx as any).rawMaterialLog.create({
+                    data: {
+                        rawMaterialId: existing.id,
+                        type: "OUT",
+                        quantity,
+                        userId,
+                        note: userNote,
+                    }
+                });
+                results.push({ name: rawName, quantity, status: "deducted" });
+                deductedCount++;
+                totalQtyDeducted += quantity;
+            }
+        });
+
+        const notFound = results.filter(r => r.status === "not_found");
+        const insufficient = results.filter(r => r.status === "insufficient");
+
+        revalidatePath('/dashboard/raw-materials');
+        return {
+            success: true,
+            deducted: deductedCount,
+            totalQty: totalQtyDeducted,
+            notFound: notFound.map(r => ({ name: r.name, suggestions: r.suggestions ?? [] })),
+            insufficient: insufficient.map(r => ({ name: r.name, quantity: r.quantity })),
+        };
+    } catch (error: any) {
+        console.error("Error exporting raw materials from excel:", error);
+        return { success: false, error: error.message || "Excel işlemi sırasında hata oluştu." };
     }
 }

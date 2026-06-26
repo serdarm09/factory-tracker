@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle, Plus, Edit, Trash2, Search, Check, X, Minus, Download } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ExcelImportDialog } from "./excel-import-dialog";
+import { ExcelExitDialog } from "./excel-exit-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -278,6 +279,7 @@ export function StockTab({ rawMaterials, currentUser }: { rawMaterials: any[]; c
                         <Download className="w-4 h-4" /> Excel İndir
                     </Button>
                     {canEdit && <ExcelImportDialog />}
+                    {canEdit && <ExcelExitDialog />}
                     {canEdit && (
                         <Button size="sm" onClick={openAdd} className="flex items-center gap-2">
                             <Plus className="w-4 h-4" /> Yeni Hammadde

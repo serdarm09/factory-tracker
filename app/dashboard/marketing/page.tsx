@@ -79,10 +79,7 @@ export default async function MarketingPage() {
             p.shippedQty || 0,
             p.shipmentItems.reduce((sum, item) => sum + item.quantity, 0)
         );
-        const totalInInventory = Math.max(
-            p.storedQty || 0,
-            p.inventory.reduce((sum, inv) => sum + inv.quantity, 0)
-        );
+        const totalInInventory = p.storedQty || 0;
         let displayStatus = p.status;
         const total = totalInInventory + totalShipped;
         if (total >= p.quantity) {
