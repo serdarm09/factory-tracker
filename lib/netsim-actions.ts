@@ -68,12 +68,18 @@ export async function getNetSimOrders(options?: {
       },
       select: {
         externalId: true,
-        _count: { select: { products: true } }
+        products: {
+          select: {
+            externalId: true,
+            quantity: true,
+            totalPrice: true
+          }
+        }
       }
     });
     const importedSet = new Set(importedOrders.map(o => o.externalId));
 
-    // NetSim'deki güncel ürün sayısını yerel ile karşılaştır
+    // NetSim'deki güncel ürün bilgilerini yerel ile karşılaştır
     let updatedOrderIds: number[] = [];
     if (importedOrders.length > 0) {
       const importedAlissatisNos = importedOrders
@@ -83,26 +89,72 @@ export async function getNetSimOrders(options?: {
 
       if (importedAlissatisNos) {
         try {
-          const netsimCounts = await netSimClient.query<{ ALISSATIS_NO: number; CNT: number }>(
-            `SELECT ALISSATIS_NO, COUNT(*) AS CNT FROM ALSADETA WHERE ALISSATIS_NO IN (${importedAlissatisNos}) GROUP BY ALISSATIS_NO`,
-            500
+          const netsimDetails = await netSimClient.query<{ ALISSATIS_NO: number; ALISSATIS_DETAY_NO: number; MIKTAR: number; SATIR_TOPLAMI: number }>(
+            `SELECT ALISSATIS_NO, ALISSATIS_DETAY_NO, MIKTAR, SATIR_TOPLAMI FROM ALSADETA WHERE ALISSATIS_NO IN (${importedAlissatisNos})`,
+            5000
           );
 
-          // externalId -> yerel ürün sayısı haritası
-          const localCountMap = new Map<string, number>();
-          for (const o of importedOrders) {
-            if (o.externalId) localCountMap.set(o.externalId, o._count.products);
+          // NetSim detaylarını ALISSATIS_NO'ya göre grupla
+          const netsimOrderItemsMap = new Map<number, typeof netsimDetails>();
+          for (const item of netsimDetails) {
+            const list = netsimOrderItemsMap.get(item.ALISSATIS_NO) || [];
+            list.push(item);
+            netsimOrderItemsMap.set(item.ALISSATIS_NO, list);
           }
 
-          for (const row of netsimCounts) {
-            const extId = `NETSIM-${row.ALISSATIS_NO}`;
-            const localCount = localCountMap.get(extId) ?? 0;
-            if (row.CNT > localCount) {
-              updatedOrderIds.push(row.ALISSATIS_NO);
+          for (const o of importedOrders) {
+            const alissatisNoStr = o.externalId?.replace('NETSIM-', '');
+            if (!alissatisNoStr) continue;
+            const alissatisNo = parseInt(alissatisNoStr);
+            if (isNaN(alissatisNo)) continue;
+
+            const localProducts = o.products;
+            const netsimItems = netsimOrderItemsMap.get(alissatisNo) || [];
+
+            // 1. Satır sayıları farklıysa güncelleme vardır
+            if (localProducts.length !== netsimItems.length) {
+              updatedOrderIds.push(alissatisNo);
+              continue;
+            }
+
+            // 2. Detaylardaki miktar veya fiyatları karşılaştır
+            let hasMismatch = false;
+            const localProdMap = new Map<string, { quantity: number; totalPrice: number | null }>();
+            for (const p of localProducts) {
+              if (p.externalId) {
+                localProdMap.set(p.externalId, { quantity: p.quantity, totalPrice: p.totalPrice });
+              }
+            }
+
+            for (const item of netsimItems) {
+              const detailExtId = `NETSIM-DETAY-${item.ALISSATIS_DETAY_NO}`;
+              const localProd = localProdMap.get(detailExtId);
+
+              if (!localProd) {
+                hasMismatch = true;
+                break;
+              }
+
+              const netsimQty = Math.floor(item.MIKTAR);
+              const localQty = localProd.quantity;
+              
+              const netsimPrice = item.SATIR_TOPLAMI || 0;
+              const localPrice = localProd.totalPrice || 0;
+              const priceDiff = Math.abs(netsimPrice - localPrice);
+
+              // Miktar veya fiyat farklı ise güncelleme olarak işaretle
+              if (netsimQty !== localQty || priceDiff > 0.01) {
+                hasMismatch = true;
+                break;
+              }
+            }
+
+            if (hasMismatch) {
+              updatedOrderIds.push(alissatisNo);
             }
           }
-        } catch {
-          // Sessizce geç, ürün sayısı karşılaştırması zorunlu değil
+        } catch (e) {
+          console.error("NetSim update check error:", e);
         }
       }
     }

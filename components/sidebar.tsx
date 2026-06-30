@@ -75,7 +75,7 @@ export async function Sidebar() {
         { name: "Panel", href: "/dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PLANNER", "WORKER", "VIEWER", "MARKETER", "YARİMAMUL"], shortcut: "D" },
         { name: "NetSim Siparisler", href: "/dashboard/netsim", icon: Database, roles: ["ADMIN", "PLANNER", "VIEWER"], shortcut: "N" },
         { name: "Siparis Planlama", href: "/dashboard/planning", icon: CalendarDays, roles: ["ADMIN", "PLANNER"], shortcut: "P" },
-        { name: "Uretim", href: "/dashboard/production-planning", icon: Wrench, roles: ["ADMIN", "PLANNER", "KALITE"], shortcut: "E" },
+        { name: "Uretim", href: "/dashboard/production-planning", icon: Wrench, roles: ["ADMIN", "PLANNER", "KALITE", "WAREHOUSE"], shortcut: "E" },
         { name: "Uretim Takvimi", href: "/dashboard/production-calendar", icon: Calendar, roles: ["ADMIN", "VIEWER"], shortcut: "K" },
         // Yarı Mamül burada submenu olarak eklenecek
         {

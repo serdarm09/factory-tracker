@@ -15,7 +15,7 @@ export default async function ProductionPlanningPage() {
     if (!session) redirect("/login");
 
     const role = (session.user as any).role;
-    if (!["ADMIN", "PLANNER", "KALITE"].includes(role)) {
+    if (!["ADMIN", "PLANNER", "KALITE","WAREHOUSE"].includes(role)) {
         redirect("/dashboard");
     }
 
@@ -29,7 +29,8 @@ export default async function ProductionPlanningPage() {
                 sku: {
                     startsWith: "MANUAL-"
                 }
-            }
+            },
+            ...(role === "WAREHOUSE" ? { master: { equals: "DEPO", mode: "insensitive" } } : {})
         },
         include: {
             order: true,
@@ -85,7 +86,7 @@ export default async function ProductionPlanningPage() {
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Üretim</h1>
                     <p className="text-slate-500">
-                        {role === "PLANNER"
+                        {role === "PLANNER" || role === "WAREHOUSE"
                             ? "Uretim sureclerini goruntuleyebilirsiniz (salt okunur)"
                             : "Uretim sureclerini takip edin ve durum guncellemesi yapin"}
                     </p>
@@ -97,7 +98,7 @@ export default async function ProductionPlanningPage() {
                 <CardHeader>
                     <CardTitle>Uretim Listesi</CardTitle>
                     <CardDescription>
-                        {role === "PLANNER"
+                        {role === "PLANNER" || role === "WAREHOUSE"
                             ? "Urun durumlarini buradan goruntuleyebilirsiniz"
                             : "Urun durumlarini ve alt durumlarini buradan guncelleyebilirsiniz"}
                     </CardDescription>
